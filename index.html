@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEWCo Lead Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#222a30; --ink-2:#2e373f; --paper:#f4f3f0; --line:#e0ddd5;
+    --muted:#74787c; --text:#272d31;
+    --A:#2c7a52; --A-bg:#e7f1ec; --B:#bd7e1f; --B-bg:#f7efdf; --C:#5b6776; --C-bg:#ecedef; --R:#b23b3b; --R-bg:#f6e7e7;
+    --accent:#3f6f8f; --accent-bg:#e7eef3;
+    --shadow:0 1px 2px rgba(34,42,48,.06),0 4px 14px rgba(34,42,48,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--text);line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 22px}
+
+  header{background:var(--ink);color:#f4f3ef;margin-bottom:5px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 0;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:12px}
+  .brand h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;letter-spacing:-.01em}
+  .brand .tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa6b0}
+  .tabs{display:flex;gap:4px;background:rgba(255,255,255,.06);padding:4px;border-radius:10px}
+  .tab{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;color:#aeb6bd;background:none;border:0;padding:8px 16px;border-radius:7px;cursor:pointer;transition:.15s}
+  .tab:hover{color:#fff}
+  .tab.on{background:var(--accent);color:#fff}
+
+  main{padding:26px 0 60px}
+  .view{display:none}.view.on{display:block}
+
+  .banner{background:#fff7e6;border:1px solid #ecd9a8;color:#7a5a18;border-radius:11px;padding:13px 16px;margin-bottom:18px;font-size:13px;display:none}
+  .banner.show{display:block}
+  .banner b{font-family:'Space Grotesk',sans-serif}
+  .banner code{background:#f1e7cc;padding:1px 5px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+  .stat .n{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:var(--ink);line-height:1}
+  .stat .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:7px}
+  .stat.tierA .n{color:var(--A)} .stat.tierB .n{color:var(--B)} .stat.tierC .n{color:var(--C)} .stat.tierR .n{color:var(--R)}
+
+  .pipeline{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .pchip{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:8px 13px;font-size:12px;box-shadow:var(--shadow)}
+  .pchip .pn{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;color:var(--ink)}
+  .pchip .pd{width:9px;height:9px;border-radius:3px;flex-shrink:0}
+  .pchip .pl{color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-size:11px;font-weight:600;font-family:'Space Grotesk',sans-serif}
+
+  .mixcard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:22px;box-shadow:var(--shadow)}
+  .mixcard h3{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;margin-bottom:12px;color:var(--ink)}
+  .mixrow{display:flex;flex-direction:column;gap:9px}
+  .mixline{display:grid;grid-template-columns:170px 1fr 90px;align-items:center;gap:12px;font-size:12px}
+  .mixline .lab{color:var(--text)}
+  .mixbar{height:9px;background:#eceddf;border-radius:5px;overflow:hidden;position:relative}
+  .mixbar i{display:block;height:100%;background:var(--accent);border-radius:5px;transition:width .4s}
+  .mixbar .target{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+  .mixval{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-align:right}
+
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .search{flex:1;min-width:220px;position:relative}
+  .search input{width:100%;padding:10px 12px 10px 34px;border:1px solid var(--line);border-radius:9px;font-family:inherit;font-size:13px;background:#fff}
+  .search input:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+  .search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted)}
+  select{padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-family:inherit;font-size:13px;background:#fff;cursor:pointer}
+  .btn{font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 15px;border-radius:9px;cursor:pointer;transition:.15s}
+  .btn:hover{border-color:var(--ink)}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.primary:hover{background:var(--ink-2)}
+  .btn.ghost{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:#fff}
+  .btn.ghost:hover{background:rgba(255,255,255,.2);border-color:#fff}
+
+  .tablewrap{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{background:#efeee7;text-align:left;padding:11px 12px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink);border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;user-select:none}
+  thead th:hover{color:var(--accent)}
+  thead th .ar{font-size:9px;color:var(--accent);margin-left:3px}
+  tbody tr{border-bottom:1px solid #f0eee6;cursor:pointer;transition:.1s}
+  tbody tr:hover{background:#faf9f4}
+  tbody td{padding:11px 12px;vertical-align:top}
+  .co{font-weight:600;color:var(--ink);font-size:13px}
+  .co .meta{font-weight:400;color:var(--muted);font-size:11px;margin-top:2px}
+  .tierpill{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px}
+  .tA{background:var(--A-bg);color:var(--A)} .tB{background:var(--B-bg);color:var(--B)} .tC{background:var(--C-bg);color:var(--C)} .tR{background:var(--R-bg);color:var(--R)}
+  .scorecell{display:flex;align-items:center;gap:9px}
+  .scorenum{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px;color:var(--ink);width:34px}
+  .sigbar{display:flex;gap:2px}
+  .sigbar i{width:7px;height:18px;border-radius:2px;background:#e5e2d8}
+  .sigbar i.on{background:var(--accent)}
+  .sigbar i.rej{background:var(--R)}
+  .ctry{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:#efeee7;padding:2px 6px;border-radius:5px}
+  .tag-sector{font-size:11px;color:var(--muted)}
+  a.link{color:var(--accent);text-decoration:none;font-size:12px}
+  a.link:hover{text-decoration:underline}
+
+  .statussel{font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:600;padding:5px 8px;border-radius:7px;border:1px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:.04em;appearance:none;-webkit-appearance:none}
+  .st-pending{background:#ecedef;color:#5b6776;border-color:#dcdde0}
+  .st-ongoing{background:var(--accent-bg);color:var(--accent);border-color:#c8dbe6}
+  .st-done{background:var(--A-bg);color:var(--A);border-color:#c4e0d2}
+  .st-rejected{background:var(--R-bg);color:var(--R);border-color:#e6c5c5}
+
+  .drawer-bg{position:fixed;inset:0;background:rgba(34,42,48,.4);opacity:0;pointer-events:none;transition:.2s;z-index:40}
+  .drawer-bg.on{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,94vw);background:var(--paper);box-shadow:-8px 0 30px rgba(34,42,48,.18);transform:translateX(100%);transition:transform .25s;z-index:41;overflow-y:auto}
+  .drawer.on{transform:translateX(0)}
+  .drawer-head{position:sticky;top:0;background:var(--ink);color:#f4f3ef;padding:20px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;z-index:1}
+  .drawer-head h2{font-family:'Space Grotesk',sans-serif;font-size:19px;font-weight:700}
+  .drawer-head .dsub{font-family:'JetBrains Mono',monospace;font-size:12px;color:#9aa6b0;margin-top:4px}
+  .drawer-head .x{background:rgba(255,255,255,.1);border:0;color:#fff;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:16px;flex-shrink:0}
+  .drawer-body{padding:22px}
+  .dfield{margin-bottom:16px}
+  .dfield .k{font-family:'Space Grotesk',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:600;margin-bottom:4px}
+  .dfield .v{font-size:13px;color:var(--text)}
+  .siglist{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+  .sigitem{display:flex;gap:9px;align-items:flex-start;font-size:12px;padding:7px 10px;border-radius:7px;background:#fff;border:1px solid var(--line)}
+  .sigitem .dot{width:16px;height:16px;border-radius:5px;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff}
+  .sigitem.on .dot{background:var(--A)} .sigitem.off .dot{background:#cfccc2}
+  .sigitem.off{color:var(--muted)}
+
+  .panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;box-shadow:var(--shadow);max-width:820px}
+  .panel h2{font-family:'Space Grotesk',sans-serif;font-size:17px;font-weight:600;color:var(--ink);margin-bottom:6px}
+  .panel p.lead{font-size:13px;color:var(--muted);margin-bottom:16px}
+  textarea{width:100%;min-height:200px;border:1px solid var(--line);border-radius:9px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5;resize:vertical}
+  textarea:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+  .row-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px}
+  .err{color:var(--R);font-size:12px;margin-top:10px;font-family:'JetBrains Mono',monospace}
+
+  .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  .ffield{display:flex;flex-direction:column;gap:4px}
+  .ffield.wide{grid-column:1/-1}
+  .ffield label{font-family:'Space Grotesk',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);font-weight:600}
+  .ffield input,.ffield select,.ffield textarea.fta{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;width:100%}
+  .ffield textarea.fta{min-height:62px;resize:vertical}
+  .ffield input:focus,.ffield textarea.fta:focus,.ffield select:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+  .formscore{font-size:12px;color:var(--muted);padding-top:6px}
+  .formscore-pill{font-family:'Space Grotesk',sans-serif;font-weight:700;padding:3px 10px;border-radius:7px;font-size:12px;margin-right:6px}
+
+  .scorer-grid{display:grid;grid-template-columns:1fr;gap:8px;margin:8px 0 16px}
+  .sigcheck{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border:1px solid var(--line);border-radius:9px;cursor:pointer;transition:.12s;background:#fff}
+  .sigcheck:hover{border-color:var(--accent)}
+  .sigcheck.checked{background:var(--accent-bg);border-color:var(--accent)}
+  .sigcheck input{margin-top:2px;width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  .sigcheck .t{font-size:13px} .sigcheck .t b{display:block;margin-bottom:1px;color:var(--ink);font-weight:600}
+  .rejbox{background:var(--R-bg);border:1px solid #e6c5c5;border-radius:9px;padding:13px 15px;margin-bottom:16px}
+  .rejbox .rtitle{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--R);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+  .rejbox label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text);padding:3px 0;cursor:pointer}
+  .rejbox input{accent-color:var(--R)}
+  .result{display:flex;align-items:center;gap:18px;padding:18px 20px;border-radius:11px;background:var(--ink);color:#fff}
+  .result .big{font-family:'JetBrains Mono',monospace;font-size:40px;font-weight:700;line-height:1}
+  .result .rtier{font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:700;padding:6px 18px;border-radius:10px}
+  .result .desc{font-size:13px;color:#c4d0dc}
+  .result .desc b{color:#fff;display:block;font-size:15px;font-family:'Space Grotesk',sans-serif;margin-bottom:2px}
+
+  .empty{text-align:center;padding:60px 20px;color:var(--muted)}
+  .empty h3{font-family:'Space Grotesk',sans-serif;color:var(--ink);font-size:17px;margin-bottom:6px;font-weight:600}
+  .empty .btn{margin-top:16px}
+
+  @media(max-width:640px){
+    .mixline{grid-template-columns:96px 1fr 78px}
+    thead th.hide,tbody td.hide{display:none}
+    .formgrid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap topbar">
+    <div class="brand">
+      <h1>NEWCo Lead Engine</h1>
+      <span class="tag">Benelux · A/B/C prospecting</span>
+      <span class="tag" id="saveState" style="color:#e0a94a">● connecting…</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab on" data-view="board">Board</button>
+      <button class="tab" data-view="scorer">Scorer</button>
+      <button class="tab" data-view="add">Add lead</button>
+      <button class="tab" data-view="import">Import</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="view on" id="board">
+    <div class="banner" id="connBanner"></div>
+    <div class="stats" id="stats"></div>
+    <div class="pipeline" id="pipeline"></div>
+    <div class="mixcard" id="mixcard">
+      <h3>Source mix — current list vs. target</h3>
+      <div class="mixrow" id="mixrow"></div>
+    </div>
+    <div class="controls">
+      <div class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="q" placeholder="Search company, sector, tool, notes…">
+      </div>
+      <select id="fTier"><option value="">All tiers</option><option>A</option><option>B</option><option>C</option><option>Reject</option></select>
+      <select id="fStatus"><option value="">All statuses</option><option value="pending">Pending</option><option value="ongoing">Ongoing</option><option value="done">Done</option><option value="rejected">Rejected</option></select>
+      <select id="fCountry"><option value="">All countries</option></select>
+      <select id="fSource"><option value="">All sources</option></select>
+      <button class="btn" id="exportBtn">Export CSV</button>
+      <button class="btn" id="xlsxBtn">Export Excel</button>
+    </div>
+    <div class="tablewrap" id="tablewrap"></div>
+  </section>
+
+  <section class="view" id="scorer">
+    <div class="panel">
+      <h2>Score a company</h2>
+      <p class="lead">Tick each signal that is clearly true (+1 each). Weak or unclear evidence scores 0. Auto-reject overrides the score.</p>
+      <div class="scorer-grid" id="scorerGrid"></div>
+      <div class="rejbox">
+        <div class="rtitle">Auto-reject flags</div>
+        <div id="rejList"></div>
+      </div>
+      <div class="result" id="scoreResult"></div>
+    </div>
+  </section>
+
+  <section class="view" id="add">
+    <div class="panel">
+      <h2>Add a lead manually</h2>
+      <p class="lead">Fill in what you know and tick the fit signals — the tier is computed for you. New leads default to <b>Pending</b> status and are de-duplicated by company name.</p>
+      <div id="addForm"></div>
+      <div class="row-actions">
+        <button class="btn primary" id="addBtn">Add to board</button>
+        <button class="btn" id="addResetBtn">Clear form</button>
+      </div>
+      <div class="err" id="addErr"></div>
+    </div>
+  </section>
+
+  <section class="view" id="import">
+    <div class="panel">
+      <h2>Import leads</h2>
+      <p class="lead">Paste the JSON array Claude produces from the lead-batch Skill, then load it. Each company maps straight onto the board.</p>
+      <textarea id="jsonIn" placeholder='[{"company":"Decostar","country":"NL","sector":"Garden &amp; Pet","type":"Wholesaler","source":"GS1 datapool","website":"decostar.nl","employees":"120","revenue":"€40M","signals":[1,1,1,1,1,1,0,1,1,1],"why":"...","pains":"...","product":"PIM","personas":"...","tools":"Qmica","switch":"...","notes":"..."}]'></textarea>
+      <div class="row-actions">
+        <button class="btn primary" id="loadBtn">Add to board</button>
+        <label class="sigcheck" style="padding:9px 13px;flex:0 0 auto"><input type="checkbox" id="replaceMode"><span class="t" style="font-size:12px">Replace everything instead of adding</span></label>
+      </div>
+      <div class="row-actions">
+        <button class="btn" id="saveFileBtn">Download JSON backup</button>
+        <button class="btn" id="sampleBtn">Load sample data</button>
+        <button class="btn" id="clearBtn">Clear all</button>
+      </div>
+      <div class="err" id="importErr"></div>
+      <p class="hint">When connected to Supabase, every add / edit / status change writes to the shared database and pushes live to everyone's board. Re-importing a company updates it (keeping any manual status). "Replace everything" and "Clear all" overwrite the shared board for the whole team.<br><br>Fields: company, country, sector, type, source, website, linkedin, employees, revenue, why, pains, product, personas, tools, switch, notes, <code>status</code> (pending/ongoing/done/rejected). Plus either <code>signals</code> (array of 10 ones/zeros) or a numeric <code>score</code>. Add <code>"reject":true</code> to force the Reject tier.</p>
+    </div>
+  </section>
+</main>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer"><div id="drawerContent"></div></aside>
+
+<script>
+/* ============================================================
+   CONFIG — paste your Supabase project values between the quotes.
+   Find them in your Supabase dashboard: Project Settings → API.
+   The "anon public" key is safe to use in the browser; access is
+   controlled by the Row Level Security policy you create in SQL.
+   Leave blank to run the dashboard in local (not connected) mode.
+   ============================================================ */
+const SUPABASE_URL = "https://cmrpjcyelcuprcvuhxox.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtcnBqY3llbGN1cHJjdnVoeG94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MDU4NTIsImV4cCI6MjA5NzA4MTg1Mn0.pmP_bcnrXxjdkNn984HNglR1IJMlZspPZFhigNj1sBc";
+const ALLOWED_DOMAIN = "yourcompany.com"; // only emails ending in @this-domain may sign in (use "" to allow any)
+/* ============================================================ */
+
+const SIGNALS = [
+  "In the Netherlands or Belgium",
+  "50–1,000 employees or €10M–€250M revenue",
+  "Supplier, wholesaler, importer, distributor, or retail supplier",
+  "Product-heavy sector (DIY, Garden & Pet, Home & Garden, packaging, tools, furniture…)",
+  "Many products, SKUs, variants, brands, or attributes",
+  "Sells B2B / to retailers, wholesalers, dealers, professionals",
+  "In GS1 datapool or clear GS1 / product-compliance pressure",
+  "Mentions PIM, ERP, product data, e-commerce, Excel, pricing, planning, supply chain, integrations",
+  "Already uses a competitor tool (Qmica, App4Sales, Akeneo, Pimcore, Salsify, inriver, Perfion, Sales Layer)",
+  "Clear wedge: narrow current tool, operational complexity, GS1 issues, field sales, planning, pricing"
+];
+const REJECTS = [
+  "Large retail chain (Albert Heijn, Jumbo, Lidl, Action, Hema…)",
+  "Pure B2C webshop, no B2B / product-data complexity",
+  "Service company, agency, or consultancy with no product ops",
+  "Medical sector",
+  "Outside NL / BE / DE",
+  "Very small company, no clear operational complexity",
+  "Already a NEWCo customer or active opportunity"
+];
+const TARGET_MIX = [
+  {key:"GS1 datapool", n:70},
+  {key:"Competitor-customer", n:10},
+  {key:"Dutch look-alike (KVK/SBI)", n:10},
+  {key:"Belgian look-alike", n:5},
+  {key:"Partner / referral", n:5}
+];
+const STATUSES=[
+  {k:"pending",label:"Pending"},{k:"ongoing",label:"Ongoing"},{k:"done",label:"Done"},{k:"rejected",label:"Rejected"}
+];
+const STATUS_RANK={pending:0,ongoing:1,done:2,rejected:3};
+const STATUS_COLOR={pending:"#9aa3ad",ongoing:"var(--accent)",done:"var(--A)",rejected:"var(--R)"};
+function statusOf(l){return l.status||"pending";}
+
+const FIELDS=[
+  {k:"company",label:"Company *"},{k:"country",label:"Country"},{k:"sector",label:"Sector"},{k:"type",label:"Type"},
+  {k:"source",label:"Source"},{k:"website",label:"Website"},{k:"linkedin",label:"LinkedIn"},
+  {k:"employees",label:"Employees"},{k:"revenue",label:"Revenue"},{k:"product",label:"Best-fit NEWCo product"},
+  {k:"personas",label:"Likely personas"},{k:"tools",label:"Currently used tools"},{k:"switch",label:"Switch signal"},
+  {k:"why",label:"Why it is a good lead",ta:true},{k:"pains",label:"Likely pain points",ta:true},{k:"notes",label:"Notes",ta:true}
+];
+
+const SAMPLE = [
+  {company:"Decostar",country:"NL",sector:"Garden & Pet",type:"Wholesaler",source:"GS1 datapool",website:"decostar.nl",employees:"120",revenue:"€40M",status:"ongoing",signals:[1,1,1,1,1,1,1,0,1,1],why:"Garden & Pet wholesaler with GS1 listing and known Qmica usage; strong SKU complexity.",pains:"Product-data spread across spreadsheets; channel-specific exports.",product:"PIM",personas:"Head of Operations, Commercial Director",tools:"Qmica",switch:"Known Qmica usage + GS1 pressure",notes:"Close look-alike to Dijk Natural Collections."},
+  {company:"Esschert Design",country:"NL",sector:"Home & Garden",type:"Supplier",source:"GS1 datapool",website:"esschert.com",employees:"180",revenue:"€60M",status:"done",signals:[1,1,1,1,1,1,1,1,0,1],why:"Reference-fit profile: product-heavy garden supplier with retailer channels.",pains:"Seasonal catalogue churn, GS1 data quality.",product:"PIM + planning",personas:"COO, Supply Chain Lead",tools:"Excel + ERP",switch:"GS1 pressure + manual planning",notes:"Named reference company in brief."},
+  {company:"Benelux Tools BV",country:"NL",sector:"Tools / DIY",type:"Distributor",source:"Dutch look-alike (KVK/SBI)",website:"example.nl",employees:"75",revenue:"€18M",signals:[1,1,1,1,1,1,0,1,0,1],why:"DIY distributor with broad assortment and dealer network.",pains:"Pricing complexity across dealers.",product:"Pricing + PIM",personas:"Commercial Director",tools:"Excel",switch:"Pricing complexity, no PIM",notes:"SBI-code match to target profile."},
+  {company:"Akeneo-using Importer NV",country:"BE",sector:"Home & Garden",type:"Importer",source:"Competitor-customer",website:"example.be",employees:"95",revenue:"€28M",signals:[1,1,1,1,1,1,0,1,1,1],why:"Already runs Akeneo — proven need for product software, possible limitations.",pains:"Akeneo upkeep cost, integration gaps.",product:"PIM migration",personas:"IT Lead, Head of E-commerce",tools:"Akeneo",switch:"Existing PIM with friction",notes:"Belgian competitor-customer lead."},
+  {company:"Tiny Decor Shop",country:"NL",sector:"B2C decor",type:"Webshop",source:"Dutch look-alike (KVK/SBI)",website:"example.nl",employees:"6",revenue:"€1M",signals:[1,0,0,1,0,0,0,0,0,0],why:"Surfaced in search but fails core fit.",pains:"—",product:"—",personas:"—",tools:"Shopify",switch:"—",notes:"Auto-rejected: pure B2C webshop, no B2B complexity.",reject:true},
+  {company:"PIM Consultancy Partners",country:"NL",sector:"Consulting",type:"Partner",source:"Partner / referral",website:"example.nl",employees:"40",revenue:"€8M",signals:[1,1,0,0,0,1,1,1,1,1],why:"PIM/ETIM consultancy — strong referral channel into target accounts.",pains:"—",product:"Referral partner",personas:"Managing Partner",tools:"Akeneo, inriver",switch:"Partner relationship",notes:"Treat as referral source, not direct prospect."}
+];
+
+let LEADS = [];
+let sb=null, cloud=false;
+let drawerId=null;
+let sortKey="score", sortDir=-1;
+
+/* ---------- helpers ---------- */
+function keyOf(l){return (l.company||'').trim().toLowerCase();}
+function newId(){return (window.crypto&&crypto.randomUUID)?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(16).slice(2));}
+function ensureId(l){if(!l.id)l.id=newId();l.company_key=keyOf(l);l.updatedAt=Date.now();return l;}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function scoreOf(l){if(Array.isArray(l.signals)) return l.signals.reduce((a,b)=>a+(b?1:0),0);return Number(l.score)||0;}
+function tierOf(l){if(l.reject) return "Reject";const s=scoreOf(l);if(s>=8)return "A";if(s>=5)return "B";if(s>=3)return "C";return "Reject";}
+const TIER_CLASS={A:"tA",B:"tB",C:"tC",Reject:"tR"};
+const TIER_ACTION={A:"Founder / senior sales outreach",B:"SDR or lighter outreach",C:"Nurture only",Reject:"Do not include"};
+
+/* ---------- Supabase row mapping ---------- */
+function toRow(l){
+  return {
+    id:l.id, company:l.company||'', company_key:keyOf(l),
+    country:l.country||null, sector:l.sector||null, lead_type:l.type||null, source:l.source||null,
+    website:l.website||null, linkedin:l.linkedin||null, employees:l.employees||null, revenue:l.revenue||null,
+    why:l.why||null, pains:l.pains||null, product:l.product||null, personas:l.personas||null,
+    tools:l.tools||null, switch_signal:l.switch||null, notes:l.notes||null,
+    status:statusOf(l), signals:Array.isArray(l.signals)?l.signals:[], reject:!!l.reject,
+    updated_at:new Date().toISOString()
+  };
+}
+function fromRow(r){
+  return {
+    id:r.id, company:r.company||'', country:r.country||'', sector:r.sector||'', type:r.lead_type||'',
+    source:r.source||'', website:r.website||'', linkedin:r.linkedin||'', employees:r.employees||'', revenue:r.revenue||'',
+    why:r.why||'', pains:r.pains||'', product:r.product||'', personas:r.personas||'', tools:r.tools||'',
+    switch:r.switch_signal||'', notes:r.notes||'', status:r.status||'pending',
+    signals:Array.isArray(r.signals)?r.signals:[], reject:!!r.reject,
+    updatedAt:r.updated_at?new Date(r.updated_at).getTime():Date.now()
+  };
+}
+
+/* ---------- connection state ---------- */
+function setConn(state){
+  const el=document.getElementById('saveState');
+  const map={
+    live:['● cloud · synced','#6fae8e'],
+    saving:['● syncing…','#e0a94a'],
+    error:['● connection error','#d98c8c'],
+    local:['● local only — not connected','#e0a94a']
+  };
+  const [t,c]=map[state]||map.local;el.textContent=t;el.style.color=c;
+  const b=document.getElementById('connBanner');
+  if(state==='live'){b.classList.remove('show');}
+  else if(state==='error'){b.classList.add('show');b.innerHTML='<b>Connection problem.</b> The board could not reach Supabase. Check your project URL / key and that the <code>leads</code> table exists. Changes are kept in this browser only until the connection is restored.';}
+  else if(!cloud){
+    b.classList.add('show');
+    const why=window.supabase?'No Supabase URL / key set in the file\'s CONFIG block.':'The Supabase library did not load (this is expected inside the Claude preview — it works once the file is hosted on a real web address).';
+    b.innerHTML='<b>Running locally — not shared.</b> '+why+' Changes live only in this browser tab and are not saved or shared. Add your keys and host the file to enable the live shared database.';
+  }
+}
+
+/* ---------- cloud operations ---------- */
+async function loadAll(){
+  if(!cloud)return;
+  try{
+    const {data,error}=await sb.from('leads').select('*').order('updated_at',{ascending:false});
+    if(error){setConn('error');return;}
+    const openId=drawerId;
+    LEADS=(data||[]).map(fromRow);
+    render();
+    setConn('live');
+    if(openId){const i=LEADS.findIndex(x=>x.id===openId);if(i>=0 && document.getElementById('drawer').classList.contains('on')) {/* keep drawer; data refreshed on next open */}}
+  }catch(e){setConn('error');}
+}
+let rtTimer=null;
+function subscribe(){
+  sb.channel('leads-changes')
+    .on('postgres_changes',{event:'*',schema:'public',table:'leads'},()=>{clearTimeout(rtTimer);rtTimer=setTimeout(loadAll,400);})
+    .subscribe();
+}
+async function persistLead(l){
+  ensureId(l);
+  const i=LEADS.findIndex(x=>x.id===l.id);
+  if(i>=0)LEADS[i]=l; else LEADS.unshift(l);
+  render();
+  if(!cloud)return;
+  setConn('saving');
+  const {error}=await sb.from('leads').upsert(toRow(l),{onConflict:'id'});
+  setConn(error?'error':'live');
+}
+async function persistMany(list,replace){
+  list.forEach(ensureId);
+  if(replace){LEADS=list.slice();}
+  else{
+    const idx={};LEADS.forEach((l,i)=>idx[keyOf(l)]=i);
+    list.forEach(l=>{const k=keyOf(l);if(k&&idx[k]!=null){if(l.status==null&&LEADS[idx[k]].status)l.status=LEADS[idx[k]].status;l.id=LEADS[idx[k]].id||l.id;LEADS[idx[k]]=l;}else{idx[k]=LEADS.length;LEADS.push(l);}});
+  }
+  render();
+  if(!cloud)return;
+  setConn('saving');
+  try{
+    if(replace){await sb.from('leads').delete().not('id','is',null);}
+    const rows=(replace?LEADS:list).map(toRow);
+    const {error}=await sb.from('leads').upsert(rows,{onConflict:'company_key'});
+    setConn(error?'error':'live');
+  }catch(e){setConn('error');}
+}
+async function clearAllLeads(){
+  LEADS=[];render();
+  if(!cloud)return;
+  setConn('saving');
+  try{const {error}=await sb.from('leads').delete().not('id','is',null);setConn(error?'error':'live');}
+  catch(e){setConn('error');}
+}
+
+/* ---------- render ---------- */
+function render(){
+  const counts={A:0,B:0,C:0,Reject:0};
+  LEADS.forEach(l=>counts[tierOf(l)]++);
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><div class="n">${LEADS.length}</div><div class="l">Total companies</div></div>
+    <div class="stat tierA"><div class="n">${counts.A}</div><div class="l">A · senior outreach</div></div>
+    <div class="stat tierB"><div class="n">${counts.B}</div><div class="l">B · SDR follow-up</div></div>
+    <div class="stat tierC"><div class="n">${counts.C}</div><div class="l">C · nurture</div></div>
+    <div class="stat tierR"><div class="n">${counts.Reject}</div><div class="l">Rejected tier</div></div>`;
+
+  const sc={pending:0,ongoing:0,done:0,rejected:0};
+  LEADS.forEach(l=>sc[statusOf(l)]++);
+  document.getElementById('pipeline').innerHTML=STATUSES.map(s=>
+    `<div class="pchip"><span class="pd" style="background:${STATUS_COLOR[s.k]}"></span><span class="pn">${sc[s.k]}</span><span class="pl">${s.label}</span></div>`).join('');
+
+  const mixrow=document.getElementById('mixrow');
+  const bySource={};
+  LEADS.forEach(l=>{const s=(l.source||'').trim()||'Uncategorised';bySource[s]=(bySource[s]||0)+1;});
+  const mixTotal=LEADS.length||1;
+  const targetOf={};TARGET_MIX.forEach(t=>targetOf[t.key]=t.n);
+  const mixEntries=Object.keys(bySource).map(k=>({key:k,n:bySource[k]})).sort((a,b)=>b.n-a.n);
+  if(mixEntries.length===0){mixrow.innerHTML='<div style="font-size:12px;color:var(--muted)">No leads yet — add or import some to see the source mix.</div>';}
+  else{mixrow.innerHTML=mixEntries.map(e=>{
+    const share=(e.n/mixTotal)*100;const tgt=targetOf[e.key];
+    return `<div class="mixline"><span class="lab">${esc(e.key)}</span>
+      <div class="mixbar"><i style="width:${share}%"></i>${tgt?`<span class="target" style="left:${Math.min(100,tgt)}%" title="target ${tgt}%"></span>`:''}</div>
+      <span class="mixval">${e.n} · ${share.toFixed(0)}%</span></div>`;
+  }).join('');}
+
+  fillSelect('fCountry',[...new Set(LEADS.map(l=>l.country).filter(Boolean))]);
+  fillSelect('fSource',[...new Set(LEADS.map(l=>l.source).filter(Boolean))]);
+  renderTable();
+}
+function fillSelect(id,vals){
+  const el=document.getElementById(id);const cur=el.value;
+  const first=el.querySelector('option').outerHTML;
+  el.innerHTML=first+vals.sort().map(v=>`<option>${esc(v)}</option>`).join('');el.value=cur;
+}
+function filtered(){
+  const q=document.getElementById('q').value.toLowerCase();
+  const ft=document.getElementById('fTier').value;
+  const fst=document.getElementById('fStatus').value;
+  const fc=document.getElementById('fCountry').value;
+  const fs=document.getElementById('fSource').value;
+  let rows=LEADS.filter(l=>{
+    if(ft && tierOf(l)!==ft) return false;
+    if(fst && statusOf(l)!==fst) return false;
+    if(fc && l.country!==fc) return false;
+    if(fs && l.source!==fs) return false;
+    if(q){const blob=[l.company,l.sector,l.tools,l.notes,l.why,l.switch,l.type].join(' ').toLowerCase();if(!blob.includes(q))return false;}
+    return true;
+  });
+  const tierRank={A:3,B:2,C:1,Reject:0};
+  rows.sort((a,b)=>{
+    let av,bv;
+    if(sortKey==='score'){av=scoreOf(a);bv=scoreOf(b);}
+    else if(sortKey==='tier'){av=tierRank[tierOf(a)];bv=tierRank[tierOf(b)];}
+    else if(sortKey==='status'){av=STATUS_RANK[statusOf(a)];bv=STATUS_RANK[statusOf(b)];}
+    else if(sortKey==='company'){return sortDir*(a.company||'').localeCompare(b.company||'');}
+    else if(sortKey==='country'){return sortDir*(a.country||'').localeCompare(b.country||'');}
+    else {return sortDir*String(a[sortKey]||'').localeCompare(String(b[sortKey]||''));}
+    return sortDir*(av-bv);
+  });
+  return rows;
+}
+function statusSelectHTML(l,cls){
+  const st=statusOf(l);
+  return `<select class="statussel st-${st} ${cls}">${STATUSES.map(s=>`<option value="${s.k}" ${s.k===st?'selected':''}>${s.label}</option>`).join('')}</select>`;
+}
+function renderTable(){
+  const wrap=document.getElementById('tablewrap');
+  const rows=filtered();
+  if(LEADS.length===0){
+    wrap.innerHTML=`<div class="empty"><h3>No leads loaded yet</h3><p>Add a lead manually, import the JSON from your lead-batch run, or load the sample to explore.</p><button class="btn primary" onclick="document.querySelector('[data-view=add]').click()">Add a lead</button></div>`;
+    return;
+  }
+  const arrow=k=>sortKey===k?`<span class="ar">${sortDir<0?'▼':'▲'}</span>`:'';
+  wrap.innerHTML=`<table><thead><tr>
+    <th data-k="company">Company${arrow('company')}</th>
+    <th data-k="status">Status${arrow('status')}</th>
+    <th data-k="tier">Tier${arrow('tier')}</th>
+    <th data-k="score">Score · signals${arrow('score')}</th>
+    <th data-k="country" class="hide">Country${arrow('country')}</th>
+    <th data-k="sector" class="hide">Sector${arrow('sector')}</th>
+    <th data-k="switch" class="hide">Switch signal${arrow('switch')}</th>
+  </tr></thead><tbody>${rows.map((l)=>{
+    const t=tierOf(l),sc=scoreOf(l);
+    const sig=(l.signals||[]).map(s=>`<i class="${s?'on':''}"></i>`).join('')||`<i class="${l.reject?'rej':''}"></i>`;
+    return `<tr data-id="${esc(l.id||'')}">
+      <td><div class="co">${esc(l.company)}${l.website?` <a class="link" href="${/^https?:/.test(l.website)?l.website:'https://'+l.website}" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗</a>`:''}<div class="meta">${esc(l.type||'')} · ${esc(l.source||'')}</div></div></td>
+      <td>${statusSelectHTML(l,'tbl-status')}</td>
+      <td><span class="tierpill ${TIER_CLASS[t]}">${t==='Reject'?'✕':t}</span></td>
+      <td><div class="scorecell"><span class="scorenum">${l.reject?'—':sc+'/10'}</span><div class="sigbar">${sig}</div></div></td>
+      <td class="hide"><span class="ctry">${esc(l.country||'')}</span></td>
+      <td class="hide"><span class="tag-sector">${esc(l.sector||'')}</span></td>
+      <td class="hide" style="font-size:12px;color:var(--muted)">${esc(l.switch||'')}</td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+  wrap.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>openDrawerById(tr.dataset.id,'view'));
+  wrap.querySelectorAll('.tbl-status').forEach(sel=>{
+    const id=sel.closest('tr').dataset.id;
+    sel.onclick=e=>e.stopPropagation();
+    sel.onchange=e=>{e.stopPropagation();const l=LEADS.find(x=>x.id===id);if(l){l.status=sel.value;persistLead(l);}};
+  });
+  wrap.querySelectorAll('thead th').forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k;
+    if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=(k==='company'||k==='country'||k==='sector'||k==='status')?1:-1;}
+    renderTable();
+  });
+}
+
+/* ---------- drawer ---------- */
+function curDrawerIndex(){return drawerId?LEADS.findIndex(x=>x.id===drawerId):-1;}
+function openDrawerById(id,mode){const i=LEADS.findIndex(x=>x.id===id);if(i>=0)openDrawer(i,mode);}
+function reopenDrawer(mode){const i=curDrawerIndex();if(i>=0)openDrawer(i,mode);else closeDrawer();}
+function openDrawer(i,mode){
+  mode=mode||'view';
+  const l=LEADS[i];drawerId=l.id||null;const t=tierOf(l);
+  if(mode==='edit'){
+    document.getElementById('drawerContent').innerHTML=`
+      <div class="drawer-head">
+        <div><h2>Edit lead</h2><div class="dsub">${esc(l.company||'')}</div></div>
+        <button class="x" onclick="closeDrawer()">✕</button>
+      </div>
+      <div class="drawer-body">
+        ${formHTML('edit',l)}
+        <div class="row-actions">
+          <button class="btn primary" onclick="saveDrawerEdit()">Save changes</button>
+          <button class="btn" onclick="reopenDrawer('view')">Cancel</button>
+        </div>
+        <div class="err" id="editErr"></div>
+      </div>`;
+    wireForm('edit');
+  } else {
+    const sigItems=SIGNALS.map((s,j)=>{const on=(l.signals||[])[j];return `<div class="sigitem ${on?'on':'off'}"><span class="dot">${on?'✓':''}</span><span>${esc(s)}</span></div>`;}).join('');
+    const fld=(k,v)=>v?`<div class="dfield"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>`:'';
+    document.getElementById('drawerContent').innerHTML=`
+      <div class="drawer-head">
+        <div><h2>${esc(l.company)}</h2><div class="dsub">${esc(l.country||'')} · ${esc(l.type||'')} · ${l.reject?'rejected':scoreOf(l)+'/10'} · Tier ${t}</div></div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="btn ghost" onclick="reopenDrawer('edit')">Edit</button>
+          <button class="x" onclick="closeDrawer()">✕</button>
+        </div>
+      </div>
+      <div class="drawer-body">
+        <div class="dfield"><div class="k">Workflow status</div><div class="v">${statusSelectHTML(l,'drawer-status')}</div></div>
+        <div class="dfield"><div class="k">Recommended action</div><div class="v"><b>${TIER_ACTION[t]}</b></div></div>
+        ${fld('Why it is a good lead',l.why)}${fld('Likely pain points',l.pains)}${fld('Best-fit NEWCo product',l.product)}
+        ${fld('Likely personas',l.personas)}${fld('Currently used tools',l.tools)}${fld('Switch signal',l.switch)}
+        ${fld('Sector',l.sector)}${fld('Source',l.source)}
+        ${l.employees||l.revenue?`<div class="dfield"><div class="k">Size</div><div class="v">${esc(l.employees||'?')} employees · ${esc(l.revenue||'?')}</div></div>`:''}
+        ${l.website?`<div class="dfield"><div class="k">Links</div><div class="v"><a class="link" href="${/^https?:/.test(l.website)?l.website:'https://'+l.website}" target="_blank" rel="noopener">${esc(l.website)}</a>${l.linkedin?` · <a class="link" href="${l.linkedin}" target="_blank" rel="noopener">LinkedIn</a>`:''}</div></div>`:''}
+        ${fld('Notes',l.notes)}
+        <div class="dfield"><div class="k">Signal breakdown</div><div class="siglist">${sigItems}</div></div>
+      </div>`;
+    const ds=document.querySelector('.drawer-status');
+    if(ds){ds.onchange=()=>{const idx=curDrawerIndex();if(idx<0)return;LEADS[idx].status=ds.value;ds.className='statussel st-'+ds.value+' drawer-status';persistLead(LEADS[idx]);};}
+  }
+  document.getElementById('drawer').classList.add('on');
+  document.getElementById('drawerBg').classList.add('on');
+}
+function closeDrawer(){drawerId=null;document.getElementById('drawer').classList.remove('on');document.getElementById('drawerBg').classList.remove('on');}
+function saveDrawerEdit(){
+  const idx=curDrawerIndex();if(idx<0)return closeDrawer();
+  const o=readForm('edit');
+  if(!o.company){document.getElementById('editErr').textContent='Company name is required.';return;}
+  o.id=LEADS[idx].id;
+  persistLead(o);
+  openDrawerById(o.id,'view');
+}
+document.getElementById('drawerBg').onclick=closeDrawer;
+
+/* ---------- shared lead form ---------- */
+function formHTML(pre,l){
+  l=l||{};
+  const sourceOpts=TARGET_MIX.map(t=>`<option value="${esc(t.key)}">`).join('');
+  const field=f=>{
+    const v=esc(l[f.k]||'');
+    if(f.k==='source')return `<div class="ffield"><label>${f.label}</label><input id="${pre}_${f.k}" list="${pre}_srclist" value="${v}"><datalist id="${pre}_srclist">${sourceOpts}</datalist></div>`;
+    if(f.ta)return `<div class="ffield wide"><label>${f.label}</label><textarea class="fta" id="${pre}_${f.k}">${v}</textarea></div>`;
+    return `<div class="ffield"><label>${f.label}</label><input id="${pre}_${f.k}" value="${v}"></div>`;
+  };
+  const statusSel=`<div class="ffield"><label>Status</label><select id="${pre}_status">${STATUSES.map(s=>`<option value="${s.k}" ${statusOf(l)===s.k?'selected':''}>${s.label}</option>`).join('')}</select></div>`;
+  const sigs=`<div class="ffield wide"><label>Fit signals (each +1)</label><div class="scorer-grid">${SIGNALS.map((s,i)=>`<label class="sigcheck ${((l.signals||[])[i])?'checked':''}"><input type="checkbox" id="${pre}_sig_${i}" ${((l.signals||[])[i])?'checked':''}><span class="t"><b>Signal ${i+1}</b>${esc(s)}</span></label>`).join('')}</div></div>`;
+  const rej=`<div class="ffield wide"><label class="sigcheck" style="background:var(--R-bg);border-color:#e6c5c5"><input type="checkbox" id="${pre}_reject" ${l.reject?'checked':''}><span class="t"><b>Force Reject tier</b>Exclude regardless of score</span></label></div>`;
+  const preview=`<div class="ffield wide"><div class="formscore" id="${pre}_preview"></div></div>`;
+  return `<div class="formgrid">${FIELDS.map(field).join('')}${statusSel}</div>${sigs}${rej}${preview}`;
+}
+function updateFormScore(pre){
+  let s=0;for(let i=0;i<SIGNALS.length;i++){const c=document.getElementById(pre+'_sig_'+i);if(c&&c.checked)s++;}
+  const r=document.getElementById(pre+'_reject');const rej=r&&r.checked;
+  let tier;if(rej)tier='Reject';else if(s>=8)tier='A';else if(s>=5)tier='B';else if(s>=3)tier='C';else tier='Reject';
+  const el=document.getElementById(pre+'_preview');if(!el)return;
+  const col={A:'var(--A)',B:'var(--B)',C:'var(--C)',Reject:'var(--R)'}[tier];
+  const bg={A:'var(--A-bg)',B:'var(--B-bg)',C:'var(--C-bg)',Reject:'var(--R-bg)'}[tier];
+  el.innerHTML=`<span class="formscore-pill" style="color:${col};background:${bg}">${rej?'REJECT':'Tier '+tier}</span><span style="font-family:'JetBrains Mono',monospace">${rej?'—':s+'/10'}</span> · ${TIER_ACTION[tier]}`;
+}
+function wireForm(pre){
+  for(let i=0;i<SIGNALS.length;i++){const c=document.getElementById(pre+'_sig_'+i);if(c)c.onchange=()=>{c.closest('.sigcheck').classList.toggle('checked',c.checked);updateFormScore(pre);};}
+  const r=document.getElementById(pre+'_reject');if(r)r.onchange=()=>updateFormScore(pre);
+  updateFormScore(pre);
+}
+function readForm(pre){
+  const get=k=>{const e=document.getElementById(pre+'_'+k);return e?e.value.trim():'';};
+  const o={};FIELDS.forEach(f=>o[f.k]=get(f.k));
+  const signals=[];for(let i=0;i<SIGNALS.length;i++){const c=document.getElementById(pre+'_sig_'+i);signals.push(c&&c.checked?1:0);}
+  o.signals=signals;
+  o.reject=!!(document.getElementById(pre+'_reject')&&document.getElementById(pre+'_reject').checked);
+  o.status=document.getElementById(pre+'_status').value;
+  return o;
+}
+
+/* ---------- scorer ---------- */
+function buildScorer(){
+  const grid=document.getElementById('scorerGrid');
+  grid.innerHTML=SIGNALS.map((s,i)=>`<label class="sigcheck"><input type="checkbox" data-sig="${i}"><span class="t"><b>Signal ${i+1}</b>${esc(s)}</span></label>`).join('');
+  const rej=document.getElementById('rejList');
+  rej.innerHTML=REJECTS.map((r,i)=>`<label><input type="checkbox" data-rej="${i}">${esc(r)}</label>`).join('');
+  grid.querySelectorAll('input').forEach(c=>c.onchange=()=>{c.closest('.sigcheck').classList.toggle('checked',c.checked);calcScore();});
+  rej.querySelectorAll('input').forEach(c=>c.onchange=calcScore);
+  calcScore();
+}
+function calcScore(){
+  const sigs=[...document.querySelectorAll('[data-sig]')].filter(c=>c.checked).length;
+  const rejected=[...document.querySelectorAll('[data-rej]')].some(c=>c.checked);
+  let tier,desc;
+  if(rejected){tier='Reject';desc='Auto-reject flag is set — exclude regardless of score.';}
+  else if(sigs>=8){tier='A';desc='Strong fit, clear priority.';}
+  else if(sigs>=5){tier='B';desc='Good fit, needs more validation.';}
+  else if(sigs>=3){tier='C';desc='Weak but relevant.';}
+  else{tier='Reject';desc='Not enough fit.';}
+  const col={A:'var(--A)',B:'var(--B)',C:'var(--C)',Reject:'var(--R)'}[tier];
+  const bg={A:'var(--A-bg)',B:'var(--B-bg)',C:'var(--C-bg)',Reject:'var(--R-bg)'}[tier];
+  document.getElementById('scoreResult').innerHTML=`
+    <div class="big">${rejected?'—':sigs+'/10'}</div>
+    <div class="rtier" style="color:${col};background:${bg}">${tier==='Reject'?'REJECT':tier}</div>
+    <div class="desc"><b>${TIER_ACTION[tier]}</b>${desc}</div>`;
+}
+
+/* ---------- import / export ---------- */
+function loadJSON(text){
+  const err=document.getElementById('importErr');err.textContent='';
+  try{
+    const data=JSON.parse(text);
+    if(!Array.isArray(data)) throw new Error('Expected a JSON array of companies.');
+    const replace=document.getElementById('replaceMode').checked;
+    persistMany(data,replace);
+    document.querySelector('[data-view=board]').click();
+    err.style.color='var(--A)';err.textContent=`${replace?'Replaced board with':'Imported'} ${data.length} companies.`;
+    setTimeout(()=>{err.textContent='';err.style.color='';},4000);
+  }catch(e){err.style.color='';err.textContent='Could not parse JSON — '+e.message;}
+}
+function exportRows(){
+  return filtered().map(l=>({
+    Company:l.company||'',Status:statusOf(l),Tier:tierOf(l),Score:l.reject?'':scoreOf(l),
+    Country:l.country||'',Sector:l.sector||'',Type:l.type||'',Source:l.source||'',Website:l.website||'',
+    LinkedIn:l.linkedin||'',Employees:l.employees||'',Revenue:l.revenue||'',Why:l.why||'',Pains:l.pains||'',
+    Product:l.product||'',Personas:l.personas||'',Tools:l.tools||'',Switch:l.switch||'',Notes:l.notes||''
+  }));
+}
+function toCSV(){
+  const rows=exportRows();const cols=Object.keys(rows[0]||{Company:''});
+  const head=cols.join(',');
+  const body=rows.map(r=>cols.map(c=>'"'+String(r[c]==null?'':r[c]).replace(/"/g,'""')+'"').join(',')).join('\n');
+  return head+'\n'+body;
+}
+document.getElementById('loadBtn').onclick=()=>loadJSON(document.getElementById('jsonIn').value);
+document.getElementById('sampleBtn').onclick=()=>{const rep=document.getElementById('replaceMode').checked;persistMany(JSON.parse(JSON.stringify(SAMPLE)),rep);document.querySelector('[data-view=board]').click();};
+document.getElementById('clearBtn').onclick=()=>{if(LEADS.length&&!confirm('Clear all '+LEADS.length+' companies'+(cloud?' from the shared database — this removes them for everyone':'')+'?'))return;document.getElementById('jsonIn').value='';clearAllLeads();};
+document.getElementById('exportBtn').onclick=()=>{const blob=new Blob([toCSV()],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='newco-leads.csv';a.click();};
+document.getElementById('xlsxBtn').onclick=()=>{
+  if(!window.XLSX){alert('The Excel library did not load.');return;}
+  const ws=XLSX.utils.json_to_sheet(exportRows());
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Leads');
+  XLSX.writeFile(wb,'newco-leads.xlsx');
+};
+document.getElementById('saveFileBtn').onclick=()=>{const blob=new Blob([JSON.stringify(LEADS,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='newco-leads-backup.json';a.click();};
+
+/* ---------- add tab ---------- */
+function resetAddForm(){document.getElementById('addForm').innerHTML=formHTML('add',{});wireForm('add');}
+document.getElementById('addBtn').onclick=()=>{
+  const err=document.getElementById('addErr');err.textContent='';
+  const o=readForm('add');
+  if(!o.company){err.textContent='Company name is required.';return;}
+  persistLead(o);resetAddForm();document.querySelector('[data-view=board]').click();
+};
+document.getElementById('addResetBtn').onclick=resetAddForm;
+
+/* ---------- tabs + filters ---------- */
+['q','fTier','fStatus','fCountry','fSource'].forEach(id=>document.getElementById(id).addEventListener('input',renderTable));
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById(t.dataset.view).classList.add('on');
+});
+
+/* ---------- auth + boot ---------- */
+let appStarted=false;
+
+function injectAuthUI(){
+  const css=document.createElement('style');
+  css.textContent=`
+    .authgate{position:fixed;inset:0;z-index:60;background:var(--ink);display:flex;align-items:center;justify-content:center;padding:22px}
+    .authgate.hide{display:none}
+    .authcard{background:var(--paper);border-radius:16px;padding:30px;width:min(420px,100%);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+    .authcard h2{font-family:'Space Grotesk',sans-serif;font-size:22px;color:var(--ink);margin-bottom:6px}
+    .authcard .sub{font-size:13px;color:var(--muted);margin-bottom:16px}
+    .authcard input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:9px;font-family:inherit;font-size:14px;margin-bottom:12px}
+    .authcard input:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+    .authcard .btn.primary{width:100%;background:var(--accent);border-color:var(--accent);padding:11px}
+    .authnote{font-size:12.5px;margin-top:12px;min-height:18px}
+  `;
+  document.head.appendChild(css);
+  const gate=document.createElement('div');
+  gate.className='authgate hide';gate.id='authGate';
+  gate.innerHTML=`<div class="authcard">
+    <h2>NEWCo Lead Engine</h2>
+    <div class="sub">Sign in with your ${ALLOWED_DOMAIN?('<b>@'+esc(ALLOWED_DOMAIN)+'</b> '):''}work email — we'll send a one-time sign-in link.</div>
+    <input id="authEmail" type="email" placeholder="${ALLOWED_DOMAIN?('you@'+esc(ALLOWED_DOMAIN)):'you@company.com'}" autocomplete="email">
+    <button class="btn primary" id="authBtn">Email me a sign-in link</button>
+    <div class="authnote" id="authNote"></div>
+  </div>`;
+  document.body.appendChild(gate);
+  document.getElementById('authBtn').onclick=sendLink;
+  document.getElementById('authEmail').addEventListener('keydown',e=>{if(e.key==='Enter')sendLink();});
+  const nav=document.querySelector('.tabs');
+  const out=document.createElement('button');
+  out.className='tab';out.id='signOut';out.textContent='Sign out';out.style.display='none';
+  out.onclick=async()=>{ if(sb) await sb.auth.signOut(); };
+  nav.appendChild(out);
+}
+function showLogin(note){
+  const g=document.getElementById('authGate');g.classList.remove('hide');
+  document.getElementById('authNote').innerHTML=note?('<span style="color:var(--R)">'+esc(note)+'</span>'):'';
+  const so=document.getElementById('signOut');if(so)so.style.display='none';
+}
+function showApp(){
+  document.getElementById('authGate').classList.add('hide');
+  const so=document.getElementById('signOut');if(so)so.style.display='';
+}
+function emailOk(email){return !ALLOWED_DOMAIN || (email||'').toLowerCase().endsWith('@'+ALLOWED_DOMAIN.toLowerCase());}
+async function sendLink(){
+  const note=document.getElementById('authNote');
+  const email=document.getElementById('authEmail').value.trim();
+  if(!email){note.innerHTML='<span style="color:var(--R)">Enter your email.</span>';return;}
+  if(!emailOk(email)){note.innerHTML='<span style="color:var(--R)">Please use your @'+esc(ALLOWED_DOMAIN)+' email address.</span>';return;}
+  if(!sb){note.innerHTML='<span style="color:var(--R)">Backend not configured.</span>';return;}
+  note.style.color='';note.textContent='Sending…';
+  const {error}=await sb.auth.signInWithOtp({email,options:{emailRedirectTo:location.href.split('#')[0]}});
+  if(error){note.innerHTML='<span style="color:var(--R)">'+esc(error.message)+'</span>';}
+  else{note.innerHTML='<span style="color:var(--A)">Check your inbox and click the link to sign in.</span>';}
+}
+async function handleSession(session){
+  if(session && session.user){
+    if(!emailOk(session.user.email)){
+      await sb.auth.signOut();
+      showLogin('Account '+session.user.email+' is not part of '+ALLOWED_DOMAIN+'. Ask an admin for access.');
+      return;
+    }
+    showApp();
+    setConn('live');
+    if(!appStarted){appStarted=true;subscribe();}
+    await loadAll();
+  } else {
+    showLogin();
+  }
+}
+async function initBackend(){
+  injectAuthUI();
+  if(!(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase && window.supabase.createClient)){
+    cloud=false;LEADS.forEach(ensureId);setConn('local');
+    document.getElementById('authGate').classList.add('hide'); // no backend → no login gate (local preview)
+    return;
+  }
+  try{
+    sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+    cloud=true;
+    sb.auth.onAuthStateChange((_e,session)=>handleSession(session)); // fires immediately with the current session
+  }catch(e){cloud=false;setConn('error');document.getElementById('authGate').classList.add('hide');}
+}
+buildScorer();
+resetAddForm();
+render();
+initBackend();
+</script>
+</body>
+</html>
