@@ -160,6 +160,20 @@
   .empty h3{font-family:'Space Grotesk',sans-serif;color:var(--ink);font-size:17px;margin-bottom:6px;font-weight:600}
   .empty .btn{margin-top:16px}
 
+  .chatwrap{display:flex;flex-direction:column;height:calc(100vh - 230px);min-height:440px;max-width:840px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .chatmsgs{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px}
+  .chatempty{margin:auto;text-align:center;color:var(--muted);font-size:13px;max-width:440px}
+  .chatempty h3{font-family:'Space Grotesk',sans-serif;color:var(--ink);font-size:16px;margin-bottom:6px}
+  .bubble{max-width:86%;padding:11px 14px;border-radius:13px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+  .bubble.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+  .bubble.ai{align-self:flex-start;background:#f1f0ea;color:var(--text);border-bottom-left-radius:4px}
+  .bubble.note{align-self:center;background:var(--A-bg);color:var(--A);font-size:12px;font-weight:600;padding:6px 12px;border-radius:8px}
+  .bubble.note.err{background:var(--R-bg);color:var(--R)}
+  .chatbusy{font-size:12px;color:var(--muted);padding:0 18px 10px}
+  .chatform{border-top:1px solid var(--line);padding:12px;display:flex;gap:10px;align-items:flex-end;background:#fbfaf7}
+  .chatform textarea{flex:1;min-height:44px;max-height:150px;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-family:inherit;font-size:13.5px;resize:none}
+  .chatform textarea:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+
   @media(max-width:640px){
     .mixline{grid-template-columns:96px 1fr 78px}
     thead th.hide,tbody td.hide{display:none}
@@ -202,6 +216,7 @@
       <select id="fStatus"><option value="">All statuses</option><option value="pending">Pending</option><option value="ongoing">Ongoing</option><option value="done">Done</option><option value="rejected">Rejected</option></select>
       <select id="fCountry"><option value="">All countries</option></select>
       <select id="fSource"><option value="">All sources</option></select>
+      <button class="btn" id="refreshBtn">Refresh</button>
       <button class="btn" id="exportBtn">Export CSV</button>
       <button class="btn" id="xlsxBtn">Export Excel</button>
     </div>
@@ -575,6 +590,7 @@ function openDrawer(i,mode){
       <div class="drawer-head">
         <div><h2>${esc(l.company)}</h2><div class="dsub">${esc(l.country||'')} · ${esc(l.type||'')} · ${l.reject?'rejected':scoreOf(l)+'/10'} · Tier ${t}</div></div>
         <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="btn ghost" onclick="discussCurrentLead()">Discuss</button>
           <button class="btn ghost" onclick="reopenDrawer('edit')">Edit</button>
           <button class="x" onclick="closeDrawer()">✕</button>
         </div>
@@ -712,6 +728,7 @@ document.getElementById('xlsxBtn').onclick=()=>{
   XLSX.writeFile(wb,'newco-leads.xlsx');
 };
 document.getElementById('saveFileBtn').onclick=()=>{const blob=new Blob([JSON.stringify(LEADS,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='newco-leads-backup.json';a.click();};
+document.getElementById('refreshBtn').onclick=()=>{ if(cloud){setConn('saving');loadAll();} };
 
 /* ---------- add tab ---------- */
 function resetAddForm(){document.getElementById('addForm').innerHTML=formHTML('add',{});wireForm('add');}
@@ -722,6 +739,229 @@ document.getElementById('addBtn').onclick=()=>{
   persistLead(o);resetAddForm();document.querySelector('[data-view=board]').click();
 };
 document.getElementById('addResetBtn').onclick=resetAddForm;
+
+/* ---------- chat (floating lead agent) ---------- */
+const FUNCTIONS_URL = SUPABASE_URL ? SUPABASE_URL.replace(/\/+$/,'') + '/functions/v1/lead-agent' : '';
+let chatContextLead=null;  // the lead a chat is scoped to (null = general research)
+let chatBusy=false;
+let conversations=[];      // saved-chat metadata for the current scope
+let currentConvId=null;    // the open conversation (null = a new, unsaved chat)
+let chatMessages=[];       // messages of the open conversation
+
+(function injectChatUI(){
+  const css=document.createElement('style');
+  css.textContent=`
+    .fab{position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;border:0;cursor:pointer;box-shadow:0 8px 24px rgba(34,42,48,.28);display:flex;align-items:center;justify-content:center;z-index:45;transition:transform .15s,background .15s}
+    .fab:hover{transform:scale(1.06);background:#356180}
+    .fab svg{width:24px;height:24px}
+    .chatpop{position:fixed;right:22px;bottom:90px;width:min(400px,calc(100vw - 32px));height:min(560px,calc(100vh - 140px));background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 50px rgba(34,42,48,.28);display:flex;flex-direction:column;overflow:hidden;z-index:46;opacity:0;transform:translateY(12px) scale(.98);pointer-events:none;transition:.18s}
+    .chatpop.on{opacity:1;transform:none;pointer-events:auto}
+    .chatpop-head{background:var(--ink);color:#f4f3ef;padding:13px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .chatpop-head b{font-family:'Space Grotesk',sans-serif;font-size:14px;display:block}
+    .chatpop-head .sub{font-size:11px;color:#9aa6b0;font-family:'JetBrains Mono',monospace;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+    .chatpop-head .hbtns{display:flex;gap:6px;flex-shrink:0}
+    .chatpop-head button{background:rgba(255,255,255,.12);border:0;color:#fff;min-width:26px;height:26px;padding:0 7px;border-radius:7px;cursor:pointer;font-size:14px;line-height:1}
+    .chatpop-head button:hover{background:rgba(255,255,255,.22)}
+    .chatbody{flex:1;position:relative;display:flex;flex-direction:column;min-height:0}
+    .chatlist{position:absolute;inset:0;background:var(--paper);z-index:2;overflow-y:auto;padding:10px;display:none}
+    .chatlist.on{display:block}
+    .chatlist .newbtn{width:100%;margin-bottom:10px}
+    .convitem{display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;cursor:pointer;margin-bottom:7px;transition:.12s}
+    .convitem:hover{border-color:var(--accent)}
+    .convitem.active{border-color:var(--accent);background:var(--accent-bg)}
+    .convitem .ci-main{flex:1;min-width:0}
+    .convitem .ci-title{font-size:13px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .convitem .ci-meta{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .convitem .ci-del{flex-shrink:0;background:none;border:0;color:var(--muted);cursor:pointer;font-size:15px;padding:2px 7px;border-radius:6px}
+    .convitem .ci-del:hover{background:var(--R-bg);color:var(--R)}
+    .convempty{text-align:center;color:var(--muted);font-size:12px;padding:24px 10px}
+  `;
+  document.head.appendChild(css);
+
+  const fab=document.createElement('button');
+  fab.className='fab';fab.id='chatFab';fab.title='Chat with Claude';
+  fab.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+  document.body.appendChild(fab);
+
+  const pop=document.createElement('div');
+  pop.className='chatpop';pop.id='chatPop';
+  pop.innerHTML=`
+    <div class="chatpop-head">
+      <div style="min-width:0"><b id="chatTitle">Lead research</b><div class="sub" id="chatSubtitle">Find new prospects</div></div>
+      <div class="hbtns">
+        <button id="chatHistory" title="Saved chats">&#9776;</button>
+        <button id="chatNew" title="New chat">&#43;</button>
+        <button id="chatClose" title="Close">&times;</button>
+      </div>
+    </div>
+    <div class="chatbody">
+      <div class="chatmsgs" id="chatMsgs"></div>
+      <div class="chatlist" id="chatList"></div>
+    </div>
+    <div class="chatbusy" id="chatBusy" style="display:none">Claude is researching&hellip;</div>
+    <div class="chatform">
+      <textarea id="chatInput" placeholder="Message Claude&hellip;"></textarea>
+      <button class="btn primary" id="chatSend">Send</button>
+    </div>`;
+  document.body.appendChild(pop);
+
+  fab.onclick=()=>{ const p=document.getElementById('chatPop'); if(p.classList.contains('on')) closeChat(); else openChat(null); };
+  document.getElementById('chatClose').onclick=closeChat;
+  document.getElementById('chatHistory').onclick=toggleConvList;
+  document.getElementById('chatNew').onclick=()=>{ newConversation(); document.getElementById('chatList').classList.remove('on'); };
+  document.getElementById('chatSend').onclick=sendChat;
+  document.getElementById('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}});
+})();
+
+function leadSnapshot(l){
+  return {company:l.company,country:l.country,sector:l.sector,type:l.type,source:l.source,website:l.website,
+    employees:l.employees,revenue:l.revenue,tools:l.tools,switch:l.switch,product:l.product,personas:l.personas,
+    why:l.why,pains:l.pains,notes:l.notes,status:statusOf(l),signals:l.signals||[],reject:!!l.reject,
+    score:scoreOf(l),tier:tierOf(l)};
+}
+function relTime(ts){
+  const d=Date.now()-new Date(ts).getTime();const m=Math.floor(d/60000);
+  if(m<1)return'just now';if(m<60)return m+'m ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';
+  const days=Math.floor(h/24);if(days<7)return days+'d ago';return new Date(ts).toLocaleDateString();
+}
+function convTitle(){
+  const firstUser=chatMessages.find(m=>m.role==='user');
+  if(firstUser)return firstUser.content.slice(0,48);
+  return chatContextLead?('Discuss '+(chatContextLead.company||'lead')):'New chat';
+}
+function setChatHeader(){
+  const title=document.getElementById('chatTitle');const sub=document.getElementById('chatSubtitle');const inp=document.getElementById('chatInput');
+  if(chatContextLead){
+    title.textContent='Discuss: '+(chatContextLead.company||'lead');
+    sub.textContent=[chatContextLead.country,chatContextLead.sector].filter(Boolean).join(' \u00b7 ')||'This lead only';
+    if(inp)inp.placeholder='Ask about '+(chatContextLead.company||'this lead')+'\u2026';
+  } else {
+    title.textContent='Lead research';sub.textContent='Find new prospects';
+    if(inp)inp.placeholder='Find leads, e.g. "5 Belgian home & garden importers"\u2026';
+  }
+}
+async function openChat(lead){
+  chatContextLead=lead||null;
+  setChatHeader();
+  document.getElementById('chatList').classList.remove('on');
+  document.getElementById('chatPop').classList.add('on');
+  await fetchConversations();
+  if(conversations.length){ await openConversation(conversations[0].id); }  // resume most recent
+  else { newConversation(); }                                                // or start fresh
+  setTimeout(()=>{const i=document.getElementById('chatInput');if(i)i.focus();},60);
+}
+function closeChat(){ document.getElementById('chatPop').classList.remove('on'); }
+function discussCurrentLead(){ const i=curDrawerIndex(); if(i<0)return; const l=LEADS[i]; closeDrawer(); openChat(l); }
+function newConversation(){ currentConvId=null; chatMessages=[]; setChatHeader(); renderChat(); }
+function setChatBusy(b){chatBusy=b;document.getElementById('chatBusy').style.display=b?'':'none';document.getElementById('chatSend').disabled=b;}
+
+async function fetchConversations(){
+  conversations=[];
+  if(!cloud)return;
+  try{
+    let q=sb.from('conversations').select('id,title,scope,lead_id,lead_company,created_by,updated_at').order('updated_at',{ascending:false}).limit(50);
+    if(chatContextLead){ q=q.eq('scope','lead').eq('lead_id',chatContextLead.id); }
+    else { const {data:{session}}=await sb.auth.getSession(); q=q.eq('scope','general').eq('created_by',session?.user?.email||''); }
+    const {data}=await q;
+    conversations=data||[];
+  }catch(e){}
+}
+function renderConvList(){
+  const box=document.getElementById('chatList');if(!box)return;
+  let html='<button class="btn primary newbtn" onclick="newConversation();document.getElementById(\'chatList\').classList.remove(\'on\')">+ New chat</button>';
+  if(conversations.length===0){ html+='<div class="convempty">No saved chats yet.</div>'; }
+  else{
+    html+=conversations.map(c=>`<div class="convitem ${c.id===currentConvId?'active':''}" onclick="openConversation('${c.id}');document.getElementById('chatList').classList.remove('on')">
+      <div class="ci-main"><div class="ci-title">${esc(c.title||'Untitled chat')}</div>
+      <div class="ci-meta">${relTime(c.updated_at)}${chatContextLead&&c.created_by?(' \u00b7 '+esc(c.created_by.split('@')[0])):''}</div></div>
+      <button class="ci-del" title="Delete" onclick="event.stopPropagation();deleteConversation('${c.id}')">&times;</button>
+    </div>`).join('');
+  }
+  box.innerHTML=html;
+}
+async function toggleConvList(){
+  const box=document.getElementById('chatList');
+  if(box.classList.contains('on')){box.classList.remove('on');return;}
+  await fetchConversations();renderConvList();box.classList.add('on');
+}
+async function openConversation(id){
+  if(!cloud)return;
+  try{
+    const {data,error}=await sb.from('conversations').select('*').eq('id',id).single();
+    if(error||!data)return;
+    currentConvId=data.id;
+    chatMessages=Array.isArray(data.messages)?data.messages:[];
+    if(data.scope==='lead' && (!chatContextLead || chatContextLead.id!==data.lead_id)){
+      const found=LEADS.find(l=>l.id===data.lead_id);
+      chatContextLead=found||{id:data.lead_id,company:data.lead_company};
+    }
+    setChatHeader();renderChat();
+  }catch(e){}
+}
+async function saveCurrentConversation(){
+  if(!cloud)return;
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    const email=session?.user?.email||null;
+    if(!currentConvId){
+      const row={title:convTitle(),scope:chatContextLead?'lead':'general',lead_id:chatContextLead?chatContextLead.id:null,
+        lead_company:chatContextLead?chatContextLead.company:null,messages:chatMessages,created_by:email,updated_at:new Date().toISOString()};
+      const {data,error}=await sb.from('conversations').insert(row).select('id').single();
+      if(!error&&data)currentConvId=data.id;
+    } else {
+      await sb.from('conversations').update({messages:chatMessages,title:convTitle(),updated_at:new Date().toISOString()}).eq('id',currentConvId);
+    }
+  }catch(e){}
+}
+async function deleteConversation(id){
+  if(!cloud)return;
+  if(!confirm('Delete this chat permanently?'))return;
+  try{ await sb.from('conversations').delete().eq('id',id); }catch(e){}
+  if(id===currentConvId){ newConversation(); }
+  await fetchConversations();renderConvList();
+}
+function renderChat(){
+  const box=document.getElementById('chatMsgs'); if(!box)return;
+  if(chatMessages.length===0){
+    box.innerHTML=chatContextLead
+      ? `<div class="chatempty"><h3>Discussing ${esc(chatContextLead.company||'this lead')}</h3><p>Ask about this company only &mdash; fit, qualification, talking points, or to revise its assessment. Claude won't add other companies in this thread.</p></div>`
+      : `<div class="chatempty"><h3>Research leads with Claude</h3><p>Ask for new prospects (e.g. "Find 5 Dutch garden &amp; pet wholesalers in the GS1 datapool"). Anything Claude qualifies is saved to the board for the whole team.</p></div>`;
+    return;
+  }
+  box.innerHTML=chatMessages.map(m=>{
+    if(m.role==='note')return `<div class="bubble note${m.err?' err':''}">${esc(m.content)}</div>`;
+    return `<div class="bubble ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`;
+  }).join('');
+  box.scrollTop=box.scrollHeight;
+}
+async function sendChat(){
+  if(chatBusy)return;
+  const input=document.getElementById('chatInput');
+  const text=input.value.trim();if(!text)return;
+  if(!cloud||!FUNCTIONS_URL){chatMessages.push({role:'note',err:true,content:'Chat needs the cloud backend — sign in on the deployed site to use it.'});renderChat();return;}
+  chatMessages.push({role:'user',content:text});input.value='';renderChat();setChatBusy(true);
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    const base=chatMessages.filter(m=>m.role==='user'||m.role==='assistant').map(m=>({role:m.role,content:m.content}));
+    let payload=base;
+    if(chatContextLead){
+      const L=chatContextLead;
+      const ctx='We are discussing ONLY this existing lead from the board. Do not search for or add any other companies in this conversation. '
+        +'If we decide to revise its assessment, use save_leads for just this same company so its existing board row is updated. '
+        +'Here is its current data:\n'+JSON.stringify(leadSnapshot(L),null,2);
+      payload=[{role:'user',content:ctx},{role:'assistant',content:'Understood — I will focus only on '+(L.company||'this lead')+' and will not add other companies.'},...base];
+    }
+    const res=await fetch(FUNCTIONS_URL,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({messages:payload})});
+    const out=await res.json().catch(()=>({}));
+    if(!res.ok){chatMessages.push({role:'note',err:true,content:'⚠️ '+(out.error||('Error '+res.status))+(out.detail?(' — '+String(out.detail).slice(0,200)):'')});}
+    else{
+      chatMessages.push({role:'assistant',content:out.reply||'(no reply)'});
+      if(out.saved>0)chatMessages.push({role:'note',content:`✓ ${chatContextLead?'Updated':'Added'} ${out.saved} lead${out.saved>1?'s':''} on the board`});
+    }
+  }catch(e){chatMessages.push({role:'note',err:true,content:'⚠️ Network error: '+e.message});}
+  setChatBusy(false);renderChat();
+  await saveCurrentConversation();
+}
 
 /* ---------- tabs + filters ---------- */
 ['q','fTier','fStatus','fCountry','fSource'].forEach(id=>document.getElementById(id).addEventListener('input',renderTable));
@@ -787,17 +1027,17 @@ async function sendLink(){
   if(error){note.innerHTML='<span style="color:var(--R)">'+esc(error.message)+'</span>';}
   else{note.innerHTML='<span style="color:var(--A)">Check your inbox and click the link to sign in.</span>';}
 }
-async function handleSession(session){
+async function startSession(session){
   if(session && session.user){
     if(!emailOk(session.user.email)){
-      await sb.auth.signOut();
       showLogin('Account '+session.user.email+' is not part of '+ALLOWED_DOMAIN+'. Ask an admin for access.');
+      setTimeout(()=>{ if(sb) sb.auth.signOut(); },0); // defer to avoid the auth-lock deadlock
       return;
     }
     showApp();
     setConn('live');
     if(!appStarted){appStarted=true;subscribe();}
-    await loadAll();
+    await loadAll();   // fetch existing rows using the restored session token
   } else {
     showLogin();
   }
@@ -812,7 +1052,16 @@ async function initBackend(){
   try{
     sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
     cloud=true;
-    sb.auth.onAuthStateChange((_e,session)=>handleSession(session)); // fires immediately with the current session
+    // 1) Drive the FIRST load from the persisted session, awaited and outside any
+    //    callback, so the database query carries a valid token and RLS returns rows.
+    const {data}=await sb.auth.getSession();
+    await startSession(data?data.session:null);
+    // 2) React to later sign-in / sign-out. Defer the work so we never call a
+    //    Supabase method while the auth lock is held (which would hang the load).
+    sb.auth.onAuthStateChange((event,session)=>{
+      if(event==='INITIAL_SESSION')return; // already handled above
+      setTimeout(()=>startSession(session),0);
+    });
   }catch(e){cloud=false;setConn('error');document.getElementById('authGate').classList.add('hide');}
 }
 buildScorer();
