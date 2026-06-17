@@ -899,7 +899,7 @@ async function enrichLead(){
     // Re-fetch the updated lead and refresh the drawer
     const {data:fresh}=await sb.from('leads').select('*').eq('id',l.id).single();
     if(fresh){ const idx=LEADS.findIndex(x=>x.id===fresh.id); if(idx>=0)LEADS[idx]=fresh; }
-    renderStats(); renderTable();
+    render();
     reopenDrawer('view');
   }catch(e){
     if(btn){ btn.disabled=false; btn.textContent='Enrich'; }
