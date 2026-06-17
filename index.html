@@ -194,6 +194,7 @@
       <button class="tab" data-view="scorer">Scorer</button>
       <button class="tab" data-view="add">Add lead</button>
       <button class="tab" data-view="import">Import</button>
+      <button class="tab" data-view="settings">Settings</button>
     </nav>
   </div>
 </header>
@@ -274,7 +275,60 @@
       <p class="hint">When connected to Supabase, every add / edit / status change writes to the shared database and pushes live to everyone's board. Re-importing a company updates it (keeping any manual status). "Replace everything" and "Clear all" overwrite the shared board for the whole team.<br><br>Fields: company, country, sector, type, source, website, linkedin, employees, revenue, why, pains, product, personas, tools, switch, notes, <code>status</code> (pending/ongoing/done/rejected). Plus either <code>signals</code> (array of 10 ones/zeros) or a numeric <code>score</code>. Add <code>"reject":true</code> to force the Reject tier.</p>
     </div>
   </section>
-</main>
+
+  <section class="view" id="settings">
+    <!-- ── User: Personal Focus Notes ── -->
+    <div class="panel" style="margin-bottom:24px">
+      <h2>My Focus Notes</h2>
+      <p class="lead">Personal context that only you see — the agent will apply it in your chats. Examples: "Only look at packaging companies in Belgium this week" or "Ignore companies under €10M revenue for now."</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+        <div class="ffield">
+          <label>Label</label>
+          <input id="ucTitle" type="text" placeholder="e.g. This week's focus">
+        </div>
+        <div class="ffield">
+          <label>Note</label>
+          <textarea class="fta" id="ucContent" rows="3" placeholder="Describe your focus for this week…"></textarea>
+        </div>
+      </div>
+      <button class="btn primary" id="ucAddBtn">Add note</button>
+      <div class="err" id="ucErr"></div>
+      <div id="ucList" style="margin-top:18px;display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <!-- ── Admin: Agent Context & Skills ── -->
+    <div id="adminPanel" style="display:none">
+      <div class="panel" style="margin-bottom:24px">
+        <h2>Agent Context Blocks <span style="font-size:12px;font-weight:400;color:var(--muted);font-family:'JetBrains Mono',monospace">admin</span></h2>
+        <p class="lead">FAQs, product descriptions, company info — injected into every chat's system prompt. Changes take effect on the next message; no redeploy needed.</p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+          <div class="ffield"><label>Title</label><input id="acTitle" type="text" placeholder="e.g. NEWCo Product Suite"></div>
+          <div class="ffield"><label>Content</label><textarea class="fta" id="acContent" rows="4" placeholder="Describe the context block…"></textarea></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" id="acSaveBtn">Save</button>
+          <button class="btn" id="acCancelBtn" style="display:none">Cancel</button>
+        </div>
+        <div class="err" id="acErr"></div>
+        <div id="acList" style="margin-top:18px;display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Agent Skills <span style="font-size:12px;font-weight:400;color:var(--muted);font-family:'JetBrains Mono',monospace">admin</span></h2>
+        <p class="lead">Behavioural instructions injected into the system prompt. Example: "Always ask for the lead source before saving."</p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+          <div class="ffield"><label>Name</label><input id="asName" type="text" placeholder="e.g. Ask for source before saving"></div>
+          <div class="ffield"><label>Instruction</label><textarea class="fta" id="asInstruction" rows="4" placeholder="Describe what the agent should do…"></textarea></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" id="asSaveBtn">Save</button>
+          <button class="btn" id="asCancelBtn" style="display:none">Cancel</button>
+        </div>
+        <div class="err" id="asErr"></div>
+        <div id="asList" style="margin-top:18px;display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    </div>
+  </section>
 
 <div class="drawer-bg" id="drawerBg"></div>
 <aside class="drawer" id="drawer"><div id="drawerContent"></div></aside>
@@ -1156,6 +1210,172 @@ async function initBackend(){
     });
   }catch(e){cloud=false;setConn('error');document.getElementById('authGate').classList.add('hide');}
 }
+/* ============================================================
+   SETTINGS — User context + Admin agent config panels
+   ============================================================ */
+
+/* ── helpers ── */
+function settingRow(row, onToggle, onEdit, onDel, labelField, bodyField) {
+  const d = document.createElement('div');
+  d.style.cssText = `display:flex;gap:12px;padding:13px 15px;border-radius:10px;border:1px solid var(--line);background:${row.is_active?'#fff':'#f9f9f9'};opacity:${row.is_active?1:0.65};align-items:flex-start`;
+  const label = row[labelField] || '—';
+  const body  = row[bodyField]  || '';
+  d.innerHTML = `
+    <div style="flex:1;min-width:0">
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;color:var(--ink)">${esc(label)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px;white-space:pre-wrap">${esc(body)}</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      ${onToggle?`<button style="font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--line);background:${row.is_active?'#e8f5e9':'#fafafa'};cursor:pointer" data-action="toggle">${row.is_active?'On':'Off'}</button>`:''}
+      ${onEdit?`<button style="font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--line);background:#f0f4ff;cursor:pointer" data-action="edit">Edit</button>`:''}
+      <button style="font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--line);background:#fff0f0;cursor:pointer" data-action="del">Del</button>
+    </div>`;
+  d.querySelector('[data-action="toggle"]')?.addEventListener('click', onToggle);
+  d.querySelector('[data-action="edit"]')?.addEventListener('click', onEdit);
+  d.querySelector('[data-action="del"]')?.addEventListener('click', onDel);
+  return d;
+}
+
+/* ── User context panel ── */
+let ucEditId = null;
+async function ucLoad() {
+  if (!cloud) { document.getElementById('ucList').innerHTML = '<div style="font-size:12px;color:var(--muted)">Sign in to manage personal context.</div>'; return; }
+  const { data } = await sb.from('agent_context').select('id,title,content,is_active').eq('scope','user').order('created_at',{ascending:false});
+  const list = document.getElementById('ucList');
+  list.innerHTML = '';
+  if (!data || data.length === 0) { list.innerHTML = '<div style="font-size:12px;color:var(--muted)">No notes yet.</div>'; return; }
+  data.forEach(row => {
+    list.appendChild(settingRow(
+      row,
+      async () => { await sb.from('agent_context').update({is_active:!row.is_active}).eq('id',row.id); ucLoad(); },
+      () => { ucEditId=row.id; document.getElementById('ucTitle').value=row.title; document.getElementById('ucContent').value=row.content; document.getElementById('ucAddBtn').textContent='Update note'; },
+      async () => { if(!confirm('Delete this note?'))return; await sb.from('agent_context').delete().eq('id',row.id); ucLoad(); },
+      'title', 'content'
+    ));
+  });
+}
+document.getElementById('ucAddBtn').addEventListener('click', async () => {
+  const err = document.getElementById('ucErr');
+  const title = document.getElementById('ucTitle').value.trim();
+  const content = document.getElementById('ucContent').value.trim();
+  if (!title || !content) { err.textContent = 'Both label and note are required.'; return; }
+  if (!cloud) { err.textContent = 'Sign in to save notes.'; return; }
+  err.textContent = '';
+  const { data: { user } } = await sb.auth.getUser();
+  if (ucEditId) {
+    await sb.from('agent_context').update({ title, content }).eq('id', ucEditId);
+    ucEditId = null; document.getElementById('ucAddBtn').textContent = 'Add note';
+  } else {
+    await sb.from('agent_context').insert({ title, content, scope:'user', is_active:true, created_by:user.id });
+  }
+  document.getElementById('ucTitle').value = '';
+  document.getElementById('ucContent').value = '';
+  ucLoad();
+});
+
+/* ── Admin panel (context blocks) ── */
+let acEditId = null;
+async function acLoad() {
+  const { data } = await sb.from('agent_context').select('id,title,content,is_active').eq('scope','global').order('created_at',{ascending:false});
+  const list = document.getElementById('acList');
+  list.innerHTML = '';
+  if (!data || data.length === 0) { list.innerHTML = '<div style="font-size:12px;color:var(--muted)">No context blocks yet.</div>'; return; }
+  data.forEach(row => {
+    list.appendChild(settingRow(
+      row,
+      async () => { await sb.from('agent_context').update({is_active:!row.is_active}).eq('id',row.id); acLoad(); },
+      () => { acEditId=row.id; document.getElementById('acTitle').value=row.title; document.getElementById('acContent').value=row.content; document.getElementById('acCancelBtn').style.display=''; document.getElementById('acSaveBtn').textContent='Update'; },
+      async () => { if(!confirm('Delete this block?'))return; await sb.from('agent_context').delete().eq('id',row.id); acLoad(); },
+      'title', 'content'
+    ));
+  });
+}
+document.getElementById('acSaveBtn').addEventListener('click', async () => {
+  const err = document.getElementById('acErr');
+  const title = document.getElementById('acTitle').value.trim();
+  const content = document.getElementById('acContent').value.trim();
+  if (!title || !content) { err.textContent = 'Both title and content are required.'; return; }
+  err.textContent = '';
+  const { data: { user } } = await sb.auth.getUser();
+  if (acEditId) {
+    await sb.from('agent_context').update({ title, content }).eq('id', acEditId);
+  } else {
+    await sb.from('agent_context').insert({ title, content, scope:'global', is_active:true, created_by:user.id });
+  }
+  acEditId = null;
+  document.getElementById('acTitle').value = '';
+  document.getElementById('acContent').value = '';
+  document.getElementById('acCancelBtn').style.display = 'none';
+  document.getElementById('acSaveBtn').textContent = 'Save';
+  acLoad();
+});
+document.getElementById('acCancelBtn').addEventListener('click', () => {
+  acEditId = null;
+  document.getElementById('acTitle').value = '';
+  document.getElementById('acContent').value = '';
+  document.getElementById('acCancelBtn').style.display = 'none';
+  document.getElementById('acSaveBtn').textContent = 'Save';
+});
+
+/* ── Admin panel (skills) ── */
+let asEditId = null;
+async function asLoad() {
+  const { data } = await sb.from('agent_skills').select('id,name,instruction,is_active').order('created_at',{ascending:false});
+  const list = document.getElementById('asList');
+  list.innerHTML = '';
+  if (!data || data.length === 0) { list.innerHTML = '<div style="font-size:12px;color:var(--muted)">No skills yet.</div>'; return; }
+  data.forEach(row => {
+    list.appendChild(settingRow(
+      row,
+      async () => { await sb.from('agent_skills').update({is_active:!row.is_active}).eq('id',row.id); asLoad(); },
+      () => { asEditId=row.id; document.getElementById('asName').value=row.name; document.getElementById('asInstruction').value=row.instruction; document.getElementById('asCancelBtn').style.display=''; document.getElementById('asSaveBtn').textContent='Update'; },
+      async () => { if(!confirm('Delete this skill?'))return; await sb.from('agent_skills').delete().eq('id',row.id); asLoad(); },
+      'name', 'instruction'
+    ));
+  });
+}
+document.getElementById('asSaveBtn').addEventListener('click', async () => {
+  const err = document.getElementById('asErr');
+  const name = document.getElementById('asName').value.trim();
+  const instruction = document.getElementById('asInstruction').value.trim();
+  if (!name || !instruction) { err.textContent = 'Both name and instruction are required.'; return; }
+  err.textContent = '';
+  const { data: { user } } = await sb.auth.getUser();
+  if (asEditId) {
+    await sb.from('agent_skills').update({ name, instruction }).eq('id', asEditId);
+  } else {
+    await sb.from('agent_skills').insert({ name, instruction, scope:'global', is_active:true, created_by:user.id });
+  }
+  asEditId = null;
+  document.getElementById('asName').value = '';
+  document.getElementById('asInstruction').value = '';
+  document.getElementById('asCancelBtn').style.display = 'none';
+  document.getElementById('asSaveBtn').textContent = 'Save';
+  asLoad();
+});
+document.getElementById('asCancelBtn').addEventListener('click', () => {
+  asEditId = null;
+  document.getElementById('asName').value = '';
+  document.getElementById('asInstruction').value = '';
+  document.getElementById('asCancelBtn').style.display = 'none';
+  document.getElementById('asSaveBtn').textContent = 'Save';
+});
+
+/* ── Load settings when tab is opened; show admin panel for @stoneworx.nl ── */
+document.querySelector('[data-view="settings"]').addEventListener('click', async () => {
+  ucLoad();
+  if (cloud) {
+    const { data: { session } } = await sb.auth.getSession();
+    const email = session?.user?.email || '';
+    // Show admin panel for anyone on the allowed domain (adjust check if you want stricter admin control)
+    if (email && (!ALLOWED_DOMAIN || email.toLowerCase().endsWith('@' + ALLOWED_DOMAIN.toLowerCase()))) {
+      document.getElementById('adminPanel').style.display = '';
+      acLoad();
+      asLoad();
+    }
+  }
+});
+
 buildScorer();
 resetAddForm();
 render();
