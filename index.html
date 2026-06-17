@@ -344,6 +344,7 @@
 const SUPABASE_URL = "https://uzgatqzjrwtmerpgocbc.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV6Z2F0cXpqcnd0bWVycGdvY2JjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MjQ3NjksImV4cCI6MjA5NzEwMDc2OX0.48PUiUE7Qb7RNZxSQ5kE6dYwin9pLmoUTVUnef6T7YI";
 const ALLOWED_DOMAIN = "stoneworx.nl"; // only emails ending in @this-domain may sign in (use "" to allow any)
+const AGENT_ADMIN_URL = `${SUPABASE_URL}/functions/v1/agent-admin`; // admin writes to agent_context/agent_skills go through here, not the anon client
 /* ============================================================ */
 
 const SIGNALS = [
@@ -1215,6 +1216,23 @@ async function initBackend(){
    ============================================================ */
 
 /* ── helpers ── */
+async function adminApi(action, table, payload) {
+  const { data: { session } } = await sb.auth.getSession();
+  const token = session?.access_token;
+  const res = await fetch(AGENT_ADMIN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ action, table, payload }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.error) throw new Error(json.error || `Request failed (${res.status})`);
+  return json;
+}
+
 function settingRow(row, onToggle, onEdit, onDel, labelField, bodyField) {
   const d = document.createElement('div');
   d.style.cssText = `display:flex;gap:12px;padding:13px 15px;border-radius:10px;border:1px solid var(--line);background:${row.is_active?'#fff':'#f9f9f9'};opacity:${row.is_active?1:0.65};align-items:flex-start`;
@@ -1276,16 +1294,21 @@ document.getElementById('ucAddBtn').addEventListener('click', async () => {
 /* ── Admin panel (context blocks) ── */
 let acEditId = null;
 async function acLoad() {
-  const { data } = await sb.from('agent_context').select('id,title,content,is_active').eq('scope','global').order('created_at',{ascending:false});
+  const err = document.getElementById('acErr');
+  let data;
+  try {
+    ({ data } = await adminApi('list', 'agent_context'));
+    data = (data || []).filter(r => r.scope === 'global');
+  } catch (e) { err.textContent = e.message; return; }
   const list = document.getElementById('acList');
   list.innerHTML = '';
   if (!data || data.length === 0) { list.innerHTML = '<div style="font-size:12px;color:var(--muted)">No context blocks yet.</div>'; return; }
   data.forEach(row => {
     list.appendChild(settingRow(
       row,
-      async () => { await sb.from('agent_context').update({is_active:!row.is_active}).eq('id',row.id); acLoad(); },
+      async () => { try { await adminApi('toggle', 'agent_context', { id: row.id, is_active: !row.is_active }); } catch (e) { err.textContent = e.message; } acLoad(); },
       () => { acEditId=row.id; document.getElementById('acTitle').value=row.title; document.getElementById('acContent').value=row.content; document.getElementById('acCancelBtn').style.display=''; document.getElementById('acSaveBtn').textContent='Update'; },
-      async () => { if(!confirm('Delete this block?'))return; await sb.from('agent_context').delete().eq('id',row.id); acLoad(); },
+      async () => { if(!confirm('Delete this block?'))return; try { await adminApi('delete', 'agent_context', { id: row.id }); } catch (e) { err.textContent = e.message; } acLoad(); },
       'title', 'content'
     ));
   });
@@ -1296,12 +1319,13 @@ document.getElementById('acSaveBtn').addEventListener('click', async () => {
   const content = document.getElementById('acContent').value.trim();
   if (!title || !content) { err.textContent = 'Both title and content are required.'; return; }
   err.textContent = '';
-  const { data: { user } } = await sb.auth.getUser();
-  if (acEditId) {
-    await sb.from('agent_context').update({ title, content }).eq('id', acEditId);
-  } else {
-    await sb.from('agent_context').insert({ title, content, scope:'global', is_active:true, created_by:user.id });
-  }
+  try {
+    if (acEditId) {
+      await adminApi('upsert', 'agent_context', { id: acEditId, title, content });
+    } else {
+      await adminApi('upsert', 'agent_context', { title, content, scope:'global', is_active:true });
+    }
+  } catch (e) { err.textContent = e.message; return; }
   acEditId = null;
   document.getElementById('acTitle').value = '';
   document.getElementById('acContent').value = '';
@@ -1320,16 +1344,19 @@ document.getElementById('acCancelBtn').addEventListener('click', () => {
 /* ── Admin panel (skills) ── */
 let asEditId = null;
 async function asLoad() {
-  const { data } = await sb.from('agent_skills').select('id,name,instruction,is_active').order('created_at',{ascending:false});
+  const err = document.getElementById('asErr');
+  let data;
+  try { ({ data } = await adminApi('list', 'agent_skills')); }
+  catch (e) { err.textContent = e.message; return; }
   const list = document.getElementById('asList');
   list.innerHTML = '';
   if (!data || data.length === 0) { list.innerHTML = '<div style="font-size:12px;color:var(--muted)">No skills yet.</div>'; return; }
   data.forEach(row => {
     list.appendChild(settingRow(
       row,
-      async () => { await sb.from('agent_skills').update({is_active:!row.is_active}).eq('id',row.id); asLoad(); },
+      async () => { try { await adminApi('toggle', 'agent_skills', { id: row.id, is_active: !row.is_active }); } catch (e) { err.textContent = e.message; } asLoad(); },
       () => { asEditId=row.id; document.getElementById('asName').value=row.name; document.getElementById('asInstruction').value=row.instruction; document.getElementById('asCancelBtn').style.display=''; document.getElementById('asSaveBtn').textContent='Update'; },
-      async () => { if(!confirm('Delete this skill?'))return; await sb.from('agent_skills').delete().eq('id',row.id); asLoad(); },
+      async () => { if(!confirm('Delete this skill?'))return; try { await adminApi('delete', 'agent_skills', { id: row.id }); } catch (e) { err.textContent = e.message; } asLoad(); },
       'name', 'instruction'
     ));
   });
@@ -1340,12 +1367,13 @@ document.getElementById('asSaveBtn').addEventListener('click', async () => {
   const instruction = document.getElementById('asInstruction').value.trim();
   if (!name || !instruction) { err.textContent = 'Both name and instruction are required.'; return; }
   err.textContent = '';
-  const { data: { user } } = await sb.auth.getUser();
-  if (asEditId) {
-    await sb.from('agent_skills').update({ name, instruction }).eq('id', asEditId);
-  } else {
-    await sb.from('agent_skills').insert({ name, instruction, scope:'global', is_active:true, created_by:user.id });
-  }
+  try {
+    if (asEditId) {
+      await adminApi('upsert', 'agent_skills', { id: asEditId, name, instruction });
+    } else {
+      await adminApi('upsert', 'agent_skills', { name, instruction, scope:'global', is_active:true });
+    }
+  } catch (e) { err.textContent = e.message; return; }
   asEditId = null;
   document.getElementById('asName').value = '';
   document.getElementById('asInstruction').value = '';
