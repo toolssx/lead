@@ -233,6 +233,13 @@
         <div id="rejList"></div>
       </div>
       <div class="result" id="scoreResult"></div>
+      <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--line)">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="passScoring" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" onchange="chatPassScoring=this.checked">
+          <span style="font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--ink)">Pass scoring rules to chat</span>
+        </label>
+        <p style="font-size:12px;color:var(--muted);margin-top:7px;margin-left:26px">When enabled, the signal and auto-reject selections above are sent to Claude as context with every chat message — the agent will score and tier companies using only what's checked here.</p>
+      </div>
     </div>
   </section>
 
@@ -747,6 +754,7 @@ let chatBusy=false;
 let conversations=[];      // saved-chat metadata for the current scope
 let currentConvId=null;    // the open conversation (null = a new, unsaved chat)
 let chatMessages=[];       // messages of the open conversation
+let chatPassScoring=false; // whether to inject scorer selections as agent context
 
 (function injectChatUI(){
   const css=document.createElement('style');
@@ -855,6 +863,36 @@ function discussCurrentLead(){ const i=curDrawerIndex(); if(i<0)return; const l=
 function newConversation(){ currentConvId=null; chatMessages=[]; setChatHeader(); renderChat(); }
 function setChatBusy(b){chatBusy=b;document.getElementById('chatBusy').style.display=b?'':'none';document.getElementById('chatSend').disabled=b;}
 
+/* ---------- scoring context for chat ---------- */
+function buildScoringCtxMsg(){
+  if(!chatPassScoring) return null;
+  const activeSig=[],inactiveSig=[];
+  document.querySelectorAll('[data-sig]').forEach(c=>{
+    (c.checked?activeSig:inactiveSig).push(SIGNALS[+c.dataset.sig]);
+  });
+  const activeRej=[],inactiveRej=[];
+  document.querySelectorAll('[data-rej]').forEach(c=>{
+    (c.checked?activeRej:inactiveRej).push(REJECTS[+c.dataset.rej]);
+  });
+  let msg='[Scoring context — configured by the user in the Scorer tab]\n';
+  msg+='Score each company ONLY against the active signals below. Ignore inactive signals entirely when computing scores and tiers.\n\n';
+  if(activeSig.length){
+    msg+='ACTIVE scoring signals (score +1 each if clearly true):\n'+activeSig.map(s=>'- '+s).join('\n')+'\n\n';
+  } else {
+    msg+='ACTIVE scoring signals: none — treat every company as scoring 0 this session.\n\n';
+  }
+  if(inactiveSig.length){
+    msg+='INACTIVE signals (do NOT score these, even if clearly true):\n'+inactiveSig.map(s=>'- '+s).join('\n')+'\n\n';
+  }
+  if(activeRej.length){
+    msg+='ACTIVE auto-reject rules (apply as usual):\n'+activeRej.map(r=>'- '+r).join('\n');
+  }
+  if(inactiveRej.length){
+    msg+='\n\nINACTIVE auto-reject rules (ignore for this session — do NOT auto-reject based on them):\n'+inactiveRej.map(r=>'- '+r).join('\n');
+  }
+  return msg;
+}
+
 async function fetchConversations(){
   conversations=[];
   if(!cloud)return;
@@ -943,13 +981,21 @@ async function sendChat(){
   try{
     const {data:{session}}=await sb.auth.getSession();
     const base=chatMessages.filter(m=>m.role==='user'||m.role==='assistant').map(m=>({role:m.role,content:m.content}));
+    const scoringCtx=buildScoringCtxMsg();
     let payload=base;
-    if(chatContextLead){
+    if(chatContextLead || scoringCtx){
       const L=chatContextLead;
-      const ctx='We are discussing ONLY this existing lead from the board. Do not search for or add any other companies in this conversation. '
-        +'If we decide to revise its assessment, use save_leads for just this same company so its existing board row is updated. '
-        +'Here is its current data:\n'+JSON.stringify(leadSnapshot(L),null,2);
-      payload=[{role:'user',content:ctx},{role:'assistant',content:'Understood — I will focus only on '+(L.company||'this lead')+' and will not add other companies.'},...base];
+      let ctx='';
+      if(scoringCtx) ctx+=scoringCtx+(L?'\n\n---\n\n':'');
+      if(L){
+        ctx+='We are discussing ONLY this existing lead from the board. Do not search for or add any other companies in this conversation. '
+          +'If we decide to revise its assessment, use save_leads for just this same company so its existing board row is updated. '
+          +'Here is its current data:\n'+JSON.stringify(leadSnapshot(L),null,2);
+      }
+      const ack=L
+        ? 'Understood — I will '+(scoringCtx?'apply the specified scoring rules and ':'')+'focus only on '+(L.company||'this lead')+' and will not add other companies.'
+        : 'Understood — I will use only the active signals and reject rules specified when scoring and tiering companies.';
+      payload=[{role:'user',content:ctx},{role:'assistant',content:ack},...base];
     }
     const res=await fetch(FUNCTIONS_URL,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({messages:payload})});
     const out=await res.json().catch(()=>({}));
