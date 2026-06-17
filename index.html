@@ -597,6 +597,7 @@ function openDrawer(i,mode){
       <div class="drawer-head">
         <div><h2>${esc(l.company)}</h2><div class="dsub">${esc(l.country||'')} · ${esc(l.type||'')} · ${l.reject?'rejected':scoreOf(l)+'/10'} · Tier ${t}</div></div>
         <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="btn ghost" id="enrichBtn" onclick="enrichLead()">Enrich</button>
           <button class="btn ghost" onclick="discussCurrentLead()">Discuss</button>
           <button class="btn ghost" onclick="reopenDrawer('edit')">Edit</button>
           <button class="x" onclick="closeDrawer()">✕</button>
@@ -860,6 +861,51 @@ async function openChat(lead){
 }
 function closeChat(){ document.getElementById('chatPop').classList.remove('on'); }
 function discussCurrentLead(){ const i=curDrawerIndex(); if(i<0)return; const l=LEADS[i]; closeDrawer(); openChat(l); }
+
+async function enrichLead(){
+  const i=curDrawerIndex(); if(i<0)return;
+  const l=LEADS[i];
+  if(!cloud||!FUNCTIONS_URL){ alert('Enrichment needs the cloud backend — sign in on the deployed site.'); return; }
+  const btn=document.getElementById('enrichBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Enriching…'; }
+  const prompt=
+    'Research and enrich this existing lead using web search. '
+    +'Visit the company website, search LinkedIn, and look for any news or product-data mentions. '
+    +'Your goal is to fill in ALL fields that are missing or vague. Pay special attention to:\n'
+    +'- why: a clear 2-3 sentence argument for why this company is a strong NEWCo fit\n'
+    +'- pains: specific operational pain points (GS1 compliance, SKU volume, data quality, Excel reliance, retailer data demands…)\n'
+    +'- product: which NEWCo product (PIM / product-data / planning) fits best and why\n'
+    +'- personas: exact job titles of the right contacts (e.g. "Head of Product Data", "Supply Chain Manager")\n'
+    +'- tools: any ERP, PIM, WMS, e-commerce platform or data tool mentioned publicly\n'
+    +'- switch: the specific trigger or wedge that makes switching to NEWCo compelling right now\n'
+    +'- employees / revenue: company size if not already known\n'
+    +'- linkedin: the LinkedIn company page URL\n'
+    +'- source: one of "GS1 datapool", "Competitor-customer", "Dutch look-alike (KVK/SBI)", "Belgian look-alike", "Partner / referral"\n\n'
+    +'Preserve all existing good data and the signals array. '
+    +'Once you have researched, immediately call save_leads to update this record — do NOT ask for confirmation.\n\n'
+    +'Current lead data:\n'+JSON.stringify(leadSnapshot(l),null,2);
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    const payload=[
+      {role:'user',content:prompt},
+    ];
+    const res=await fetch(FUNCTIONS_URL,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({messages:payload})});
+    const out=await res.json().catch(()=>({}));
+    if(!res.ok||!out.saved){
+      if(btn){ btn.disabled=false; btn.textContent='Enrich'; }
+      alert('Enrichment failed: '+(out.error||'No fields were saved. Try again or check the agent logs.'));
+      return;
+    }
+    // Re-fetch the updated lead and refresh the drawer
+    const {data:fresh}=await sb.from('leads').select('*').eq('id',l.id).single();
+    if(fresh){ const idx=LEADS.findIndex(x=>x.id===fresh.id); if(idx>=0)LEADS[idx]=fresh; }
+    renderStats(); renderTable();
+    reopenDrawer('view');
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='Enrich'; }
+    alert('Network error: '+e.message);
+  }
+}
 function newConversation(){ currentConvId=null; chatMessages=[]; setChatHeader(); renderChat(); }
 function setChatBusy(b){chatBusy=b;document.getElementById('chatBusy').style.display=b?'':'none';document.getElementById('chatSend').disabled=b;}
 
