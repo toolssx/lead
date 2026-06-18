@@ -839,6 +839,24 @@ let chatPassScoring=false; // whether to inject scorer selections as agent conte
     .convitem .ci-del{flex-shrink:0;background:none;border:0;color:var(--muted);cursor:pointer;font-size:15px;padding:2px 7px;border-radius:6px}
     .convitem .ci-del:hover{background:var(--R-bg);color:var(--R)}
     .convempty{text-align:center;color:var(--muted);font-size:12px;padding:24px 10px}
+    .chatconfig{position:absolute;inset:0;background:var(--paper);z-index:3;overflow-y:auto;padding:12px;display:none}
+    .chatconfig.on{display:block}
+    .ccsec{margin-bottom:14px}
+    .ccsec-head{display:flex;align-items:center;gap:7px;padding:8px 11px;background:var(--ink);color:#f4f3ef;border-radius:9px;margin-bottom:8px}
+    .ccsec-head .ccsec-label{flex:1;font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase}
+    .ccsec-head .ccsec-badge{font-family:'JetBrains Mono',monospace;font-size:9px;color:#9aa6b0;letter-spacing:.04em}
+    .ccsec-head .ccsec-add{background:rgba(255,255,255,.14);border:0;color:#fff;width:22px;height:22px;border-radius:5px;cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
+    .ccsec-head .ccsec-add:hover{background:rgba(255,255,255,.28)}
+    .ccform{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;display:none}
+    .ccform input,.ccform textarea{width:100%;border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-family:inherit;font-size:12px;margin-bottom:7px;background:#fafaf8;box-sizing:border-box}
+    .ccform textarea{min-height:64px;resize:vertical;font-family:'JetBrains Mono',monospace;line-height:1.45}
+    .ccform input:focus,.ccform textarea:focus{outline:2px solid var(--accent-bg);border-color:var(--accent)}
+    .ccfbtns{display:flex;gap:6px}
+    .ccferr{font-size:11px;color:var(--R);margin-top:4px;font-family:'JetBrains Mono',monospace;min-height:14px}
+    .ccempty{font-size:12px;color:var(--muted);padding:4px 2px}
+    .cchead{padding-bottom:8px;margin-bottom:10px;border-bottom:1px solid var(--line)}
+    .cchead-title{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--ink)}
+    .cchead-sub{font-size:11px;color:var(--muted);margin-top:2px}
   `;
   document.head.appendChild(css);
 
@@ -854,6 +872,7 @@ let chatPassScoring=false; // whether to inject scorer selections as agent conte
       <div style="min-width:0"><b id="chatTitle">Lead research</b><div class="sub" id="chatSubtitle">Find new prospects</div></div>
       <div class="hbtns">
         <button id="chatHistory" title="Saved chats">&#9776;</button>
+        <button id="chatConfigBtn" title="Agent config" style="display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg></button>
         <button id="chatNew" title="New chat">&#43;</button>
         <button id="chatClose" title="Close">&times;</button>
       </div>
@@ -861,6 +880,7 @@ let chatPassScoring=false; // whether to inject scorer selections as agent conte
     <div class="chatbody">
       <div class="chatmsgs" id="chatMsgs"></div>
       <div class="chatlist" id="chatList"></div>
+      <div class="chatconfig" id="chatConfigPanel"></div>
     </div>
     <div class="chatbusy" id="chatBusy" style="display:none">Claude is researching&hellip;</div>
     <div class="chatform">
@@ -872,10 +892,288 @@ let chatPassScoring=false; // whether to inject scorer selections as agent conte
   fab.onclick=()=>{ const p=document.getElementById('chatPop'); if(p.classList.contains('on')) closeChat(); else openChat(null); };
   document.getElementById('chatClose').onclick=closeChat;
   document.getElementById('chatHistory').onclick=toggleConvList;
+  document.getElementById('chatConfigBtn').onclick=toggleChatConfig;
   document.getElementById('chatNew').onclick=()=>{ newConversation(); document.getElementById('chatList').classList.remove('on'); };
   document.getElementById('chatSend').onclick=sendChat;
   document.getElementById('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}});
 })();
+
+/* ============================================================
+   CHAT CONFIG PANEL — agent notes, context blocks, skills
+   Accessible via the ✦ button in the chat header
+   ============================================================ */
+let ccIsAdmin = false;
+let ccNoteEditId = null, ccCtxEditId = null, ccSkillEditId = null;
+
+function toggleChatConfig() {
+  const p = document.getElementById('chatConfigPanel');
+  if (p.classList.contains('on')) { p.classList.remove('on'); return; }
+  document.getElementById('chatList').classList.remove('on');
+  p.classList.add('on');
+  renderChatConfig();
+}
+
+async function renderChatConfig() {
+  const panel = document.getElementById('chatConfigPanel');
+  if (!panel) return;
+
+  // Check admin status (same domain check as settings tab)
+  if (cloud) {
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const email = session?.user?.email || '';
+      ccIsAdmin = !!(email && (!ALLOWED_DOMAIN || email.toLowerCase().endsWith('@' + ALLOWED_DOMAIN.toLowerCase())));
+    } catch(e) { ccIsAdmin = false; }
+  }
+
+  panel.innerHTML = `
+    <div class="cchead">
+      <div class="cchead-title">Agent Config</div>
+      <div class="cchead-sub">Manage what the agent knows in this chat.</div>
+    </div>
+
+    <div class="ccsec">
+      <div class="ccsec-head">
+        <span class="ccsec-label">My Notes</span>
+        <button class="ccsec-add" id="ccNoteToggleForm" title="Add note">+</button>
+      </div>
+      <div class="ccform" id="ccNoteForm">
+        <input type="text" id="ccNoteTitle" placeholder="Label, e.g. This week's focus">
+        <textarea id="ccNoteContent" placeholder="Describe your focus or constraints…"></textarea>
+        <div class="ccfbtns">
+          <button class="btn primary" style="font-size:12px;padding:6px 12px" id="ccNoteSaveBtn">Save</button>
+          <button class="btn" style="font-size:12px;padding:6px 12px" id="ccNoteCancelBtn">Cancel</button>
+        </div>
+        <div class="ccferr" id="ccNoteErr"></div>
+      </div>
+      <div id="ccNoteList"><div class="ccempty">Loading…</div></div>
+    </div>
+
+    ${ccIsAdmin ? `
+    <div class="ccsec">
+      <div class="ccsec-head">
+        <span class="ccsec-label">Context Blocks</span>
+        <span class="ccsec-badge">admin</span>
+        <button class="ccsec-add" id="ccCtxToggleForm" title="Add context block">+</button>
+      </div>
+      <div class="ccform" id="ccCtxForm">
+        <input type="text" id="ccCtxTitle" placeholder="Title, e.g. NEWCo Product Suite">
+        <textarea id="ccCtxContent" placeholder="Describe the context block…"></textarea>
+        <div class="ccfbtns">
+          <button class="btn primary" style="font-size:12px;padding:6px 12px" id="ccCtxSaveBtn">Save</button>
+          <button class="btn" style="font-size:12px;padding:6px 12px" id="ccCtxCancelBtn">Cancel</button>
+        </div>
+        <div class="ccferr" id="ccCtxErr"></div>
+      </div>
+      <div id="ccCtxList"><div class="ccempty">Loading…</div></div>
+    </div>
+
+    <div class="ccsec">
+      <div class="ccsec-head">
+        <span class="ccsec-label">Skills</span>
+        <span class="ccsec-badge">admin</span>
+        <button class="ccsec-add" id="ccSkillToggleForm" title="Add skill">+</button>
+      </div>
+      <div class="ccform" id="ccSkillForm">
+        <input type="text" id="ccSkillName" placeholder="Name, e.g. Ask for source before saving">
+        <textarea id="ccSkillInstr" placeholder="Describe what the agent should do…"></textarea>
+        <div class="ccfbtns">
+          <button class="btn primary" style="font-size:12px;padding:6px 12px" id="ccSkillSaveBtn">Save</button>
+          <button class="btn" style="font-size:12px;padding:6px 12px" id="ccSkillCancelBtn">Cancel</button>
+        </div>
+        <div class="ccferr" id="ccSkillErr"></div>
+      </div>
+      <div id="ccSkillList"><div class="ccempty">Loading…</div></div>
+    </div>
+    ` : ''}
+  `;
+
+  // Wire — Notes
+  document.getElementById('ccNoteToggleForm').onclick = () => {
+    ccNoteEditId = null;
+    const f = document.getElementById('ccNoteForm');
+    f.style.display = f.style.display === 'block' ? 'none' : 'block';
+    if (f.style.display === 'block') { document.getElementById('ccNoteTitle').focus(); }
+  };
+  document.getElementById('ccNoteSaveBtn').onclick = ccNoteSave;
+  document.getElementById('ccNoteCancelBtn').onclick = () => ccNoteFormReset(true);
+
+  // Wire — Context & Skills (admin only)
+  if (ccIsAdmin) {
+    document.getElementById('ccCtxToggleForm').onclick = () => {
+      ccCtxEditId = null;
+      const f = document.getElementById('ccCtxForm');
+      f.style.display = f.style.display === 'block' ? 'none' : 'block';
+      if (f.style.display === 'block') { document.getElementById('ccCtxTitle').focus(); }
+    };
+    document.getElementById('ccCtxSaveBtn').onclick = ccCtxSave;
+    document.getElementById('ccCtxCancelBtn').onclick = () => ccCtxFormReset(true);
+
+    document.getElementById('ccSkillToggleForm').onclick = () => {
+      ccSkillEditId = null;
+      const f = document.getElementById('ccSkillForm');
+      f.style.display = f.style.display === 'block' ? 'none' : 'block';
+      if (f.style.display === 'block') { document.getElementById('ccSkillName').focus(); }
+    };
+    document.getElementById('ccSkillSaveBtn').onclick = ccSkillSave;
+    document.getElementById('ccSkillCancelBtn').onclick = () => ccSkillFormReset(true);
+
+    ccCtxLoad();
+    ccSkillLoad();
+  }
+
+  ccNoteLoad();
+}
+
+/* ── helpers ── */
+function ccNoteFormReset(hide) {
+  ccNoteEditId = null;
+  document.getElementById('ccNoteTitle').value = '';
+  document.getElementById('ccNoteContent').value = '';
+  document.getElementById('ccNoteErr').textContent = '';
+  document.getElementById('ccNoteSaveBtn').textContent = 'Save';
+  if (hide) document.getElementById('ccNoteForm').style.display = 'none';
+}
+function ccCtxFormReset(hide) {
+  ccCtxEditId = null;
+  document.getElementById('ccCtxTitle').value = '';
+  document.getElementById('ccCtxContent').value = '';
+  document.getElementById('ccCtxErr').textContent = '';
+  document.getElementById('ccCtxSaveBtn').textContent = 'Save';
+  if (hide) document.getElementById('ccCtxForm').style.display = 'none';
+}
+function ccSkillFormReset(hide) {
+  ccSkillEditId = null;
+  document.getElementById('ccSkillName').value = '';
+  document.getElementById('ccSkillInstr').value = '';
+  document.getElementById('ccSkillErr').textContent = '';
+  document.getElementById('ccSkillSaveBtn').textContent = 'Save';
+  if (hide) document.getElementById('ccSkillForm').style.display = 'none';
+}
+
+/* ── Notes CRUD ── */
+async function ccNoteLoad() {
+  const list = document.getElementById('ccNoteList'); if (!list) return;
+  if (!cloud) { list.innerHTML = '<div class="ccempty">Sign in to manage notes.</div>'; return; }
+  try {
+    const { data } = await sb.from('agent_context').select('id,title,content,is_active').eq('scope','user').order('created_at',{ascending:false});
+    list.innerHTML = '';
+    if (!data || !data.length) { list.innerHTML = '<div class="ccempty">No notes yet. Hit + to add one.</div>'; return; }
+    data.forEach(row => list.appendChild(settingRow(
+      row,
+      async () => { await sb.from('agent_context').update({is_active:!row.is_active}).eq('id',row.id); ccNoteLoad(); ucLoad(); },
+      () => {
+        ccNoteEditId = row.id;
+        document.getElementById('ccNoteTitle').value = row.title;
+        document.getElementById('ccNoteContent').value = row.content;
+        document.getElementById('ccNoteForm').style.display = 'block';
+        document.getElementById('ccNoteSaveBtn').textContent = 'Update';
+      },
+      async () => { if (!confirm('Delete this note?')) return; await sb.from('agent_context').delete().eq('id',row.id); ccNoteLoad(); ucLoad(); },
+      'title', 'content'
+    )));
+  } catch(e) { list.innerHTML = `<div class="ccempty" style="color:var(--R)">${e.message}</div>`; }
+}
+
+async function ccNoteSave() {
+  const err = document.getElementById('ccNoteErr');
+  const title = document.getElementById('ccNoteTitle').value.trim();
+  const content = document.getElementById('ccNoteContent').value.trim();
+  if (!title || !content) { err.textContent = 'Both label and note are required.'; return; }
+  if (!cloud) { err.textContent = 'Sign in to save notes.'; return; }
+  err.textContent = '';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    if (ccNoteEditId) {
+      await sb.from('agent_context').update({ title, content }).eq('id', ccNoteEditId);
+    } else {
+      await sb.from('agent_context').insert({ title, content, scope:'user', is_active:true, created_by:user.id });
+    }
+    ccNoteFormReset(true);
+    ccNoteLoad(); ucLoad(); // keep settings tab in sync
+  } catch(e) { err.textContent = e.message; }
+}
+
+/* ── Context Blocks CRUD (admin) ── */
+async function ccCtxLoad() {
+  const list = document.getElementById('ccCtxList'); if (!list) return;
+  try {
+    let { data } = await adminApi('list', 'agent_context');
+    data = (data||[]).filter(r => r.scope === 'global');
+    list.innerHTML = '';
+    if (!data.length) { list.innerHTML = '<div class="ccempty">No context blocks yet.</div>'; return; }
+    data.forEach(row => list.appendChild(settingRow(
+      row,
+      async () => { try { await adminApi('toggle','agent_context',{id:row.id,is_active:!row.is_active}); } catch(e){} ccCtxLoad(); acLoad(); },
+      () => {
+        ccCtxEditId = row.id;
+        document.getElementById('ccCtxTitle').value = row.title;
+        document.getElementById('ccCtxContent').value = row.content;
+        document.getElementById('ccCtxForm').style.display = 'block';
+        document.getElementById('ccCtxSaveBtn').textContent = 'Update';
+      },
+      async () => { if (!confirm('Delete this block?')) return; try { await adminApi('delete','agent_context',{id:row.id}); } catch(e){} ccCtxLoad(); acLoad(); },
+      'title', 'content'
+    )));
+  } catch(e) { list.innerHTML = `<div class="ccempty" style="color:var(--R)">${e.message}</div>`; }
+}
+
+async function ccCtxSave() {
+  const err = document.getElementById('ccCtxErr');
+  const title = document.getElementById('ccCtxTitle').value.trim();
+  const content = document.getElementById('ccCtxContent').value.trim();
+  if (!title || !content) { err.textContent = 'Both title and content are required.'; return; }
+  err.textContent = '';
+  try {
+    if (ccCtxEditId) {
+      await adminApi('upsert', 'agent_context', { id: ccCtxEditId, title, content });
+    } else {
+      await adminApi('upsert', 'agent_context', { title, content, scope:'global', is_active:true });
+    }
+    ccCtxFormReset(true);
+    ccCtxLoad(); acLoad();
+  } catch(e) { err.textContent = e.message; }
+}
+
+/* ── Skills CRUD (admin) ── */
+async function ccSkillLoad() {
+  const list = document.getElementById('ccSkillList'); if (!list) return;
+  try {
+    const { data } = await adminApi('list', 'agent_skills');
+    list.innerHTML = '';
+    if (!data || !data.length) { list.innerHTML = '<div class="ccempty">No skills yet.</div>'; return; }
+    data.forEach(row => list.appendChild(settingRow(
+      row,
+      async () => { try { await adminApi('toggle','agent_skills',{id:row.id,is_active:!row.is_active}); } catch(e){} ccSkillLoad(); asLoad(); },
+      () => {
+        ccSkillEditId = row.id;
+        document.getElementById('ccSkillName').value = row.name;
+        document.getElementById('ccSkillInstr').value = row.instruction;
+        document.getElementById('ccSkillForm').style.display = 'block';
+        document.getElementById('ccSkillSaveBtn').textContent = 'Update';
+      },
+      async () => { if (!confirm('Delete this skill?')) return; try { await adminApi('delete','agent_skills',{id:row.id}); } catch(e){} ccSkillLoad(); asLoad(); },
+      'name', 'instruction'
+    )));
+  } catch(e) { list.innerHTML = `<div class="ccempty" style="color:var(--R)">${e.message}</div>`; }
+}
+
+async function ccSkillSave() {
+  const err = document.getElementById('ccSkillErr');
+  const name = document.getElementById('ccSkillName').value.trim();
+  const instruction = document.getElementById('ccSkillInstr').value.trim();
+  if (!name || !instruction) { err.textContent = 'Both name and instruction are required.'; return; }
+  err.textContent = '';
+  try {
+    if (ccSkillEditId) {
+      await adminApi('upsert', 'agent_skills', { id: ccSkillEditId, name, instruction });
+    } else {
+      await adminApi('upsert', 'agent_skills', { name, instruction, scope:'global', is_active:true });
+    }
+    ccSkillFormReset(true);
+    ccSkillLoad(); asLoad();
+  } catch(e) { err.textContent = e.message; }
+}
 
 function leadSnapshot(l){
   return {company:l.company,country:l.country,sector:l.sector,type:l.type,source:l.source,website:l.website,
@@ -1021,6 +1319,7 @@ function renderConvList(){
 async function toggleConvList(){
   const box=document.getElementById('chatList');
   if(box.classList.contains('on')){box.classList.remove('on');return;}
+  document.getElementById('chatConfigPanel').classList.remove('on');
   await fetchConversations();renderConvList();box.classList.add('on');
 }
 async function openConversation(id){
