@@ -169,6 +169,14 @@
   .bubble.ai{align-self:flex-start;background:#f1f0ea;color:var(--text);border-bottom-left-radius:4px}
   .bubble.note{align-self:center;background:var(--A-bg);color:var(--A);font-size:12px;font-weight:600;padding:6px 12px;border-radius:8px}
   .bubble.note.err{background:var(--R-bg);color:var(--R)}
+  .skillcard{align-self:flex-start;max-width:86%;margin-top:-4px;background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;font-size:12.5px}
+  .skillcard-head{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;color:var(--ink);margin-bottom:6px}
+  .skillcard-name{font-weight:600;color:var(--ink);font-size:13px;margin-bottom:3px}
+  .skillcard-instr{color:var(--text);white-space:pre-wrap;margin-bottom:6px}
+  .skillcard-reason{color:var(--muted);font-size:11.5px;font-style:italic;margin-bottom:8px}
+  .skillcard-btns{display:flex;gap:6px;flex-wrap:wrap}
+  .skillcard.done{padding:8px 14px;color:var(--muted);font-size:12px}
+  .skillcard.done.muted{opacity:.7}
   .chatbusy{font-size:12px;color:var(--muted);padding:0 18px 10px}
   .chatform{border-top:1px solid var(--line);padding:12px;display:flex;gap:10px;align-items:flex-end;background:#fbfaf7}
   .chatform textarea{flex:1;min-height:44px;max-height:150px;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-family:inherit;font-size:13.5px;resize:none}
@@ -1368,9 +1376,76 @@ function renderChat(){
   }
   box.innerHTML=chatMessages.map(m=>{
     if(m.role==='note')return `<div class="bubble note${m.err?' err':''}">${esc(m.content)}</div>`;
-    return `<div class="bubble ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`;
+    const bubble=`<div class="bubble ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`;
+    if(m.role==='assistant'&&m.suggestedSkill)return bubble+skillCardHtml(m);
+    return bubble;
   }).join('');
   box.scrollTop=box.scrollHeight;
+}
+function skillCardHtml(m){
+  const s=m.suggestedSkill;
+  if(s.status==='saved'){
+    return `<div class="skillcard done"><span>✓ Saved as skill: <b>${esc(s.name)}</b></span></div>`;
+  }
+  if(s.status==='dismissed'){
+    return `<div class="skillcard done muted"><span>Skill suggestion dismissed</span></div>`;
+  }
+  return `<div class="skillcard" data-msgid="${m._id}">
+    <div class="skillcard-head">💡 Save this as a skill?</div>
+    <div class="skillcard-name">${esc(s.name)}</div>
+    <div class="skillcard-instr">${esc(s.instruction)}</div>
+    ${s.reason?`<div class="skillcard-reason">${esc(s.reason)}</div>`:''}
+    <div class="skillcard-btns">
+      <button class="btn primary" style="font-size:12px;padding:6px 12px" onclick="skillCardSave('${m._id}')">Save</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px" onclick="skillCardEdit('${m._id}')">Edit &amp; save</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px" onclick="skillCardDismiss('${m._id}')">Dismiss</button>
+    </div>
+    <div class="ccferr" id="skillCardErr-${m._id}"></div>
+  </div>`;
+}
+function findSkillMsg(id){ return chatMessages.find(m=>m._id===id&&m.suggestedSkill); }
+async function skillCardSave(id){
+  const m=findSkillMsg(id); if(!m)return;
+  const errBox=document.getElementById('skillCardErr-'+id);
+  try{
+    await adminApi('upsert','agent_skills',{name:m.suggestedSkill.name,instruction:m.suggestedSkill.instruction,scope:'global',is_active:true});
+    m.suggestedSkill.status='saved';
+    renderChat();await saveCurrentConversation();
+    asLoad();                          // refresh Settings tab list, if mounted
+    if(document.getElementById('ccSkillList')) ccSkillLoad(); // refresh chat-config panel list, if open
+  }catch(e){ if(errBox)errBox.textContent=e.message; }
+}
+function skillCardDismiss(id){
+  const m=findSkillMsg(id); if(!m)return;
+  m.suggestedSkill.status='dismissed';
+  renderChat();saveCurrentConversation();
+}
+async function skillCardEdit(id){
+  const m=findSkillMsg(id); if(!m)return;
+  // Open the existing admin Skills form (chat header ✦ panel) pre-filled,
+  // so editing reuses the exact same create/update path as manual skills.
+  document.getElementById('chatList')?.classList.remove('on');
+  const panel=document.getElementById('chatConfigPanel');
+  if(!panel)return;
+  panel.classList.add('on');
+  await renderChatConfig(); // rebuilds the panel's DOM, including the skill form
+  const form=document.getElementById('ccSkillForm');
+  const nameEl=document.getElementById('ccSkillName');
+  const instrEl=document.getElementById('ccSkillInstr');
+  const saveBtn=document.getElementById('ccSkillSaveBtn');
+  if(!form||!nameEl||!instrEl){
+    // Not an admin in this session — fall back to a plain save.
+    return skillCardSave(id);
+  }
+  ccSkillEditId=null; // creating a new skill row, not editing an existing one
+  form.style.display='block';
+  nameEl.value=m.suggestedSkill.name;
+  instrEl.value=m.suggestedSkill.instruction;
+  nameEl.focus();
+  if(saveBtn){
+    const onSaved=()=>{ m.suggestedSkill.status='saved'; renderChat(); saveCurrentConversation(); saveBtn.removeEventListener('click',onSaved); };
+    saveBtn.addEventListener('click',onSaved);
+  }
 }
 async function sendChat(){
   if(chatBusy)return;
@@ -1401,7 +1476,12 @@ async function sendChat(){
     const out=await res.json().catch(()=>({}));
     if(!res.ok){chatMessages.push({role:'note',err:true,content:'⚠️ '+(out.error||('Error '+res.status))+(out.detail?(' — '+String(out.detail).slice(0,200)):'')});}
     else{
-      chatMessages.push({role:'assistant',content:out.reply||'(no reply)'});
+      const msg={role:'assistant',content:out.reply||'(no reply)'};
+      if(out.suggestedSkill&&out.suggestedSkill.name&&out.suggestedSkill.instruction){
+        msg._id='m'+Date.now()+Math.random().toString(36).slice(2,7);
+        msg.suggestedSkill={name:out.suggestedSkill.name,instruction:out.suggestedSkill.instruction,reason:out.suggestedSkill.reason||'',status:'pending'};
+      }
+      chatMessages.push(msg);
       if(out.saved>0)chatMessages.push({role:'note',content:`✓ ${chatContextLead?'Updated':'Added'} ${out.saved} lead${out.saved>1?'s':''} on the board`});
     }
   }catch(e){chatMessages.push({role:'note',err:true,content:'⚠️ Network error: '+e.message});}
