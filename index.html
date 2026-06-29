@@ -203,6 +203,17 @@
   .srccard-badge.dataset{background:var(--B-bg);color:var(--B)}
   .srccard-actions{display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;align-items:flex-start}
 
+  /* ── Product sub-tabs (Board) ── */
+  .prod-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+  .prod-tab{font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;transition:.13s;letter-spacing:.01em}
+  .prod-tab:hover{border-color:var(--accent);color:var(--ink)}
+  .prod-tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .prod-tab.scp.on{background:#2c4a6e;border-color:#2c4a6e}
+  .prod-tab.gs1.on{background:#3a6e4a;border-color:#3a6e4a}
+  .prod-tab.pim.on{background:#7e4a8a;border-color:#7e4a8a}
+  .prod-tab.app.on{background:#b25a1a;border-color:#b25a1a}
+  .prod-badge{display:inline-block;padding:1px 6px;border-radius:5px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:700;background:rgba(0,0,0,.12);margin-left:4px}
+
   @media(max-width:640px){
     .mixline{grid-template-columns:96px 1fr 78px}
     thead th.hide,tbody td.hide{display:none}
@@ -237,6 +248,13 @@
     <div class="mixcard" id="mixcard">
       <h3>Source mix — current list vs. target</h3>
       <div class="mixrow" id="mixrow"></div>
+    </div>
+    <div class="prod-tabs" id="prodTabs">
+      <button class="prod-tab on" data-prod="">All products <span class="prod-badge" id="ptAll"></span></button>
+      <button class="prod-tab scp" data-prod="Supply Chain Portal">Supply Chain Portal <span class="prod-badge" id="ptSCP"></span></button>
+      <button class="prod-tab gs1" data-prod="GS1 Product">GS1 Product <span class="prod-badge" id="ptGS1"></span></button>
+      <button class="prod-tab pim" data-prod="PIM">PIM <span class="prod-badge" id="ptPIM"></span></button>
+      <button class="prod-tab app" data-prod="App4Sale">App4Sale <span class="prod-badge" id="ptAPP"></span></button>
     </div>
     <div class="controls">
       <div class="search">
@@ -501,10 +519,12 @@ const STATUS_RANK={pending:0,ongoing:1,done:2,rejected:3};
 const STATUS_COLOR={pending:"#9aa3ad",ongoing:"var(--accent)",done:"var(--A)",rejected:"var(--R)"};
 function statusOf(l){return l.status||"pending";}
 
+const PRODUCTS_LIST = ["Supply Chain Portal","GS1 Product","PIM","App4Sale"];
+
 const FIELDS=[
   {k:"company",label:"Company *"},{k:"country",label:"Country"},{k:"sector",label:"Sector"},{k:"type",label:"Type"},
   {k:"source",label:"Source"},{k:"website",label:"Website"},{k:"linkedin",label:"LinkedIn"},
-  {k:"employees",label:"Employees"},{k:"revenue",label:"Revenue"},{k:"product",label:"Best-fit NEWCo product"},
+  {k:"employees",label:"Employees"},{k:"revenue",label:"Revenue"},{k:"product",label:"Best-fit NEWCo product",sel:PRODUCTS_LIST},
   {k:"personas",label:"Likely personas"},{k:"tools",label:"Currently used tools"},{k:"switch",label:"Switch signal"},
   {k:"why",label:"Why it is a good lead",ta:true},{k:"pains",label:"Likely pain points",ta:true},{k:"notes",label:"Notes",ta:true}
 ];
@@ -522,6 +542,7 @@ let LEADS = [];
 let sb=null, cloud=false;
 let drawerId=null;
 let sortKey="score", sortDir=-1;
+let boardProduct = ""; // "" = All
 
 /* ---------- helpers ---------- */
 function keyOf(l){return (l.company||'').trim().toLowerCase();}
@@ -641,6 +662,14 @@ function render(){
     <div class="stat tierC"><div class="n">${counts.C}</div><div class="l">C · nurture</div></div>
     <div class="stat tierR"><div class="n">${counts.Reject}</div><div class="l">Rejected tier</div></div>`;
 
+  // Update product tab badges
+  const prodCount = p => LEADS.filter(l => !p || (l.product||'').toLowerCase().includes(p.toLowerCase())).length;
+  const ptAll=document.getElementById('ptAll'); if(ptAll) ptAll.textContent=LEADS.length;
+  const ptSCP=document.getElementById('ptSCP'); if(ptSCP) ptSCP.textContent=prodCount('Supply Chain');
+  const ptGS1=document.getElementById('ptGS1'); if(ptGS1) ptGS1.textContent=prodCount('GS1');
+  const ptPIM=document.getElementById('ptPIM'); if(ptPIM) ptPIM.textContent=prodCount('PIM');
+  const ptAPP=document.getElementById('ptAPP'); if(ptAPP) ptAPP.textContent=prodCount('App4Sale');
+
   const sc={pending:0,ongoing:0,done:0,rejected:0};
   LEADS.forEach(l=>sc[statusOf(l)]++);
   document.getElementById('pipeline').innerHTML=STATUSES.map(s=>
@@ -680,6 +709,10 @@ function filtered(){
     if(fst && statusOf(l)!==fst) return false;
     if(fc && l.country!==fc) return false;
     if(fs && l.source!==fs) return false;
+    if(boardProduct){
+      const p=(l.product||'').toLowerCase();
+      if(!p.includes(boardProduct.toLowerCase())) return false;
+    }
     if(q){const blob=[l.company,l.sector,l.tools,l.notes,l.why,l.switch,l.type].join(' ').toLowerCase();if(!blob.includes(q))return false;}
     return true;
   });
@@ -705,6 +738,11 @@ function renderTable(){
   const rows=filtered();
   if(LEADS.length===0){
     wrap.innerHTML=`<div class="empty"><h3>No leads loaded yet</h3><p>Add a lead manually, import the JSON from your lead-batch run, or load the sample to explore.</p><button class="btn primary" onclick="document.querySelector('[data-view=add]').click()">Add a lead</button></div>`;
+    return;
+  }
+  if(rows.length===0){
+    const prodLabel = boardProduct || 'this filter';
+    wrap.innerHTML=`<div class="empty"><h3>No leads for ${esc(prodLabel)}</h3><p>Ask Claude to find leads for <b>${esc(prodLabel)}</b>, or switch to another product tab.</p></div>`;
     return;
   }
   const arrow=k=>sortKey===k?`<span class="ar">${sortDir<0?'▼':'▲'}</span>`:'';
@@ -812,6 +850,7 @@ function formHTML(pre,l){
   const field=f=>{
     const v=esc(l[f.k]||'');
     if(f.k==='source')return `<div class="ffield"><label>${f.label}</label><input id="${pre}_${f.k}" list="${pre}_srclist" value="${v}"><datalist id="${pre}_srclist">${sourceOpts}</datalist></div>`;
+    if(f.sel)return `<div class="ffield"><label>${f.label}</label><select id="${pre}_${f.k}"><option value="">— select —</option>${f.sel.map(o=>`<option value="${esc(o)}"${(l[f.k]||'')==o?' selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
     if(f.ta)return `<div class="ffield wide"><label>${f.label}</label><textarea class="fta" id="${pre}_${f.k}">${v}</textarea></div>`;
     return `<div class="ffield"><label>${f.label}</label><input id="${pre}_${f.k}" value="${v}"></div>`;
   };
@@ -1602,6 +1641,14 @@ async function sendChat(){
 
 /* ---------- tabs + filters ---------- */
 ['q','fTier','fStatus','fCountry','fSource'].forEach(id=>document.getElementById(id).addEventListener('input',renderTable));
+document.getElementById('prodTabs').addEventListener('click', e => {
+  const btn = e.target.closest('[data-prod]');
+  if (!btn) return;
+  boardProduct = btn.dataset.prod;
+  document.querySelectorAll('.prod-tab').forEach(t => t.classList.remove('on'));
+  btn.classList.add('on');
+  renderTable();
+});
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
