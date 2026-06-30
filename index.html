@@ -1632,7 +1632,13 @@ async function sendChat(){
         msg.suggestedSkill={name:out.suggestedSkill.name,instruction:out.suggestedSkill.instruction,reason:out.suggestedSkill.reason||'',status:'pending'};
       }
       chatMessages.push(msg);
-      if(out.saved>0)chatMessages.push({role:'note',content:`✓ ${chatContextLead?'Updated':'Added'} ${out.saved} lead${out.saved>1?'s':''} on the board`});
+      if(out.saved>0){
+        chatMessages.push({role:'note',content:`✓ ${chatContextLead?'Updated':'Added'} ${out.saved} lead${out.saved>1?'s':''} on the board`});
+        // Leads were written by the edge function (service-role client), not the browser's
+        // sb client, so we don't wait on the Realtime subscription to pick it up — just
+        // pull the latest rows straight away so the board never looks stale.
+        loadAll();
+      }
     }
   }catch(e){chatMessages.push({role:'note',err:true,content:'⚠️ Network error: '+e.message});}
   setChatBusy(false);renderChat();
